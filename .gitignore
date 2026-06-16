@@ -1,0 +1,5 @@
+node_modules/
+dist/
+data/agent-state.json
+.env
+.env.*
