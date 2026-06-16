@@ -134,9 +134,9 @@ describe('Omoha Follow-Up Agent', () => {
   it('renders the real backend-driven agent workbench and creates a lead through the API', async () => {
     render(<App />);
 
-    expect(screen.getByRole('heading', { name: /Omoha Follow-Up Agent/i })).toBeInTheDocument();
-    expect(screen.getByText(/real local agent loop/i)).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText(/Agent API online/i)).toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: /Follow-Up Agent/i })).toBeInTheDocument();
+    expect(screen.getByText(/Next:/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/API Online/i)).toBeInTheDocument());
 
     await userEvent.type(screen.getByLabelText(/Lead name/i), 'Ada Okafor');
     await userEvent.type(screen.getByLabelText(/Company/i), 'Ada Legal Group');
@@ -144,18 +144,18 @@ describe('Omoha Follow-Up Agent', () => {
     await userEvent.type(screen.getByLabelText(/Budget/i), '2500');
     await userEvent.type(screen.getByLabelText(/Urgency/i), 'ASAP');
     await userEvent.type(screen.getByLabelText(/Pain/i), 'missing website leads');
-    await userEvent.click(screen.getByRole('button', { name: /Create lead and draft response/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Create lead/i }));
 
     await waitFor(() => expect(screen.getAllByText(/Ada Legal Group/i).length).toBeGreaterThan(0));
     expect(screen.getByText(/Draft waiting for owner approval/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Approve and mark sent/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Approve & Send/i })).toBeInTheDocument();
   });
 
   it('shows Gmail OAuth setup readiness without asking users for secrets', async () => {
     render(<App />);
-    await waitFor(() => expect(screen.getByText(/Agent API online/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/API Online/i)).toBeInTheDocument());
 
-    await userEvent.click(screen.getByRole('button', { name: /Check Gmail readiness/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Check Gmail/i }));
 
     await waitFor(() => expect(screen.getByText(/Set GMAIL_CLIENT_ID before connecting Gmail/i)).toBeInTheDocument());
     expect(screen.getByText(/gmail.readonly, gmail.send, gmail.modify/i)).toBeInTheDocument();
@@ -164,9 +164,9 @@ describe('Omoha Follow-Up Agent', () => {
 
   it('connects a demo inbox and syncs email leads through the backend', async () => {
     render(<App />);
-    await waitFor(() => expect(screen.getByText(/Agent API online/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/API Online/i)).toBeInTheDocument());
 
-    await userEvent.click(screen.getByRole('button', { name: /Connect demo inbox/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Connect demo/i }));
     await waitFor(() => expect(screen.getByText(/owner@omohasolutions.demo/i)).toBeInTheDocument());
     expect(screen.getByText(/2 unsynced emails/i)).toBeInTheDocument();
 
@@ -178,11 +178,11 @@ describe('Omoha Follow-Up Agent', () => {
 
   it('runs an autonomous cycle and exposes the agent decision stream', async () => {
     render(<App />);
-    await waitFor(() => expect(screen.getByText(/Agent API online/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/API Online/i)).toBeInTheDocument());
 
-    await userEvent.click(screen.getAllByRole('button', { name: /Run autonomous cycle/i })[0]);
+    await userEvent.click(screen.getAllByRole('button', { name: /Run cycle/i })[0]);
 
-    await waitFor(() => expect(screen.getByText(/Imported 0, drafted 0, waiting approvals 1, human handoffs 0/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Imported 0, drafted 0, approvals 1, handoffs 0/i)).toBeInTheDocument());
     expect(screen.getByText(/Cycle checked 1 inbox, 2 leads, and 3 tasks/i)).toBeInTheDocument();
     expect(screen.getByText(/Autopilot imports new leads/i)).toBeInTheDocument();
   });
@@ -195,10 +195,10 @@ describe('Omoha Follow-Up Agent', () => {
     await userEvent.type(screen.getByLabelText(/Budget/i), '2500');
     await userEvent.type(screen.getByLabelText(/Urgency/i), 'ASAP');
     await userEvent.type(screen.getByLabelText(/Pain/i), 'missing website leads');
-    await userEvent.click(screen.getByRole('button', { name: /Create lead and draft response/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Create lead/i }));
     await waitFor(() => expect(screen.getByText(/Draft waiting for owner approval/i)).toBeInTheDocument());
 
-    await userEvent.click(screen.getByRole('button', { name: /Approve and mark sent/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Approve & Send/i }));
 
     await waitFor(() => expect(screen.getByText(/follow_up · scheduled/i)).toBeInTheDocument());
     expect(screen.getByText(/Follow-up scheduled/i)).toBeInTheDocument();

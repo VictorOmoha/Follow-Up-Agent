@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Bot, Brain, CalendarCheck, CheckCircle2, CircleDollarSign, ClipboardCheck, Flame, Mail, MessageSquareReply, PhoneCall, Play, RefreshCw, Send, ShieldCheck } from 'lucide-react';
+import { Bot, Brain, CalendarCheck, CheckCircle2, CircleDollarSign, ClipboardCheck, Flame, Mail, MessageSquareReply, PhoneCall, Play, RefreshCw, Send } from 'lucide-react';
 import { type LeadInput } from './lib/agent';
 import './styles.css';
 
@@ -92,6 +92,7 @@ type GmailOAuthStart = {
   scopes: string[];
   authUrl?: string;
   redirectUri?: string;
+  state?: string;
 };
 
 type AgentCycleReport = {
@@ -148,7 +149,7 @@ export default function App() {
       const nextState = await api<AgentState>('/state');
       setState({ ...emptyState, ...nextState, decisions: nextState.decisions ?? [] });
     } catch {
-      setError('API offline. Start it with npm run dev:api or npm run dev.');
+      setError('API offline. Start it with npm run dev.');
     } finally {
       setLoading(false);
     }
@@ -170,17 +171,17 @@ export default function App() {
   const activeMessages = activeLead ? state.messages.filter((message) => message.leadId === activeLead.id) : [];
   const activeTasks = activeLead ? state.tasks.filter((task) => task.leadId === activeLead.id && task.status !== 'done') : [];
   const activeTimeline = activeLead ? state.timeline.filter((event) => event.leadId === activeLead.id) : [];
-  const latestDecisions = state.decisions.slice(0, 6);
+  const latestDecisions = state.decisions.slice(0, 8);
   const activeLeadDecision = activeLead ? state.decisions.find((decision) => decision.leadId === activeLead.id) : undefined;
   const draft = activeMessages.find((message) => message.direction === 'outbound' && message.status === 'draft');
   const scheduledFollowUp = activeTasks.find((task) => task.type === 'follow_up' && task.status === 'scheduled');
   const nextMove = draft
-    ? 'Review the drafted message, then approve it to simulate sending.'
+    ? 'Approve draft message'
     : scheduledFollowUp
-      ? 'A follow-up is scheduled. For a live demo, force the worker to draft it now instead of waiting.'
+      ? 'Awaiting next milestone'
       : activeLead?.status === 'needs_human'
-        ? 'The lead replied with booking intent. A human should take over.'
-        : 'Create a lead to start the workflow.';
+        ? 'Lead needs human review'
+        : 'Trigger a new lead';
 
   const stats = useMemo(() => {
     const waitingApproval = state.tasks.filter((task) => task.status === 'waiting_approval').length;
@@ -244,203 +245,228 @@ export default function App() {
   }
 
   return (
-    <main>
-      <section className="hero">
-        <div>
-          <p className="eyebrow">Omoha Solutions</p>
-          <h1>Omoha Follow-Up Agent</h1>
-          <p className="subhead">A real local agent loop: backend receives leads, creates approval tasks, simulates sends, schedules follow-ups, watches replies, and persists state to disk.</p>
-          <div className="hero-actions">
-            <a href="#lead-intake" className="button primary">Create real lead</a>
-            <button className="button secondary" type="button" onClick={() => void runAgentCycle()}><Bot size={16} /> Run autonomous cycle</button>
-            <button className="button secondary" type="button" onClick={() => void runWorker()}><Play size={16} /> Run due worker</button>
-          </div>
-          {error && <p className="error-banner">{error}</p>}
+    <div className="app-container">
+      <header className="app-header">
+        <div className="header-brand">
+          <span className="eyebrow">Omoha Solutions</span>
+          <h1>Follow-Up Agent</h1>
+          {error && <span className="error-badge">{error}</span>}
         </div>
-        <div className="agent-card">
-          <Bot size={34} />
-          <h2>{loading ? 'Connecting to agent API' : 'Agent API online'}</h2>
-          <p>Next move: {nextMove}</p>
-          <span className="trust"><ShieldCheck size={16} /> Backend persistence · Human approval gate</span>
-        </div>
-      </section>
 
-      <section className="metrics" aria-label="Dashboard metrics">
-        <article><CircleDollarSign /><span>Pipeline captured</span><strong>${stats.pipeline.toLocaleString()}</strong></article>
-        <article><Flame /><span>Needs action</span><strong>{stats.hot}</strong></article>
-        <article><PhoneCall /><span>Waiting approval</span><strong>{stats.waitingApproval}</strong></article>
-        <article><CalendarCheck /><span>Scheduled tasks</span><strong>{stats.scheduled}</strong></article>
-      </section>
+        <div className="header-metrics">
+          <div className="metric-item">
+            <CircleDollarSign size={16} />
+            <span>Pipeline</span>
+            <strong>${stats.pipeline.toLocaleString()}</strong>
+          </div>
+          <div className="metric-item">
+            <Flame size={16} />
+            <span>Hot Leads</span>
+            <strong>{stats.hot}</strong>
+          </div>
+          <div className="metric-item">
+            <PhoneCall size={16} />
+            <span>Waiting Approval</span>
+            <strong>{stats.waitingApproval}</strong>
+          </div>
+          <div className="metric-item">
+            <CalendarCheck size={16} />
+            <span>Scheduled</span>
+            <strong>{stats.scheduled}</strong>
+          </div>
+        </div>
 
-      <section className="panel cockpit-panel">
-        <div className="panel-heading">
-          <Brain />
-          <div>
-            <h2>Autonomous agent cockpit</h2>
-            <p>The agent now shows what it observed, why it chose an action, what it did, and what still needs owner approval.</p>
-          </div>
+        <div className="header-status">
+          <Bot size={16} />
+          <span className="api-status">{loading ? 'Connecting' : 'API Online'}</span>
+          <span className="next-move">Next: {nextMove}</span>
         </div>
-        <div className="cockpit-grid">
-          <div className="autopilot-card">
-            <span>Autopilot cycle</span>
-            <strong>{cycleReport ? `Last ran ${new Date(cycleReport.startedAt).toLocaleTimeString()}` : 'Ready to run'}</strong>
-            <p>{cycleReport ? `Imported ${cycleReport.imported}, drafted ${cycleReport.createdDrafts}, waiting approvals ${cycleReport.waitingApproval}, human handoffs ${cycleReport.needsHuman}.` : 'One click checks connected inboxes, imports new leads, drafts due follow-ups, and summarizes human decisions.'}</p>
-            <button className="button primary" type="button" onClick={() => void runAgentCycle()}><Bot size={16} /> Run autonomous cycle</button>
-          </div>
-          <div className="decision-stream">
-            {latestDecisions.length ? latestDecisions.map((decision) => (
-              <article key={decision.id}>
-                <span>{decision.type.replace('_', ' ')} · {decision.confidence}% confidence</span>
-                <strong>{decision.observation}</strong>
-                <p>{decision.reasoning}</p>
-                <small>{decision.action}</small>
-              </article>
-            )) : <p className="empty-state">No decisions yet. Connect the demo inbox or create a lead, then run an autonomous cycle.</p>}
-          </div>
-        </div>
-      </section>
+      </header>
 
-      <section className="panel email-panel">
-        <div className="panel-heading">
-          <Mail />
-          <div>
-            <h2>Connected email inbox</h2>
-            <p>Demo connector proves the workflow first. Gmail readiness checks the OAuth setup without collecting credentials in the browser.</p>
-          </div>
-        </div>
-        <div className="email-actions">
-          <button className="button primary" type="button" onClick={connectDemoInbox}>Connect demo inbox</button>
-          <button className="button secondary" type="button" onClick={checkGmailReadiness}>Check Gmail readiness</button>
-          <button className="button secondary" type="button" disabled={!activeInbox || unsyncedEmailCount === 0} onClick={syncInbox}><RefreshCw size={16} /> Sync inbox now</button>
-        </div>
-        {gmailStart && (
-          <div className={`gmail-summary ${gmailStart.status}`}>
-            <strong>{gmailStart.status === 'ready' ? 'Gmail OAuth ready' : 'Gmail setup required'}</strong>
-            <span>{gmailStart.message}</span>
-            <small>Scopes: {gmailStart.scopes.join(', ')}</small>
-            {gmailStart.missing?.length ? <small>Missing: {gmailStart.missing.join(', ')}</small> : null}
-            {gmailStart.authUrl ? <a href={gmailStart.authUrl} target="_blank" rel="noreferrer">Open Google consent screen</a> : null}
-          </div>
-        )}
-        {activeInbox ? (
-          <div className="inbox-summary">
-            <strong>{activeInbox.email}</strong>
-            <span>{activeInbox.provider} · {activeInbox.status} · {unsyncedEmailCount} unsynced emails</span>
-            <small>{activeInbox.lastSyncAt ? `Last synced ${new Date(activeInbox.lastSyncAt).toLocaleString()}` : 'Not synced yet'}</small>
-          </div>
-        ) : <p className="empty-state">Connect the demo inbox to prove the agent can import email leads before we wire Gmail OAuth.</p>}
-      </section>
+      <div className="workspace">
+        {/* Column 1: Setup & Intake */}
+        <aside className="workspace-column sidebar">
+          {/* Inbox connection card */}
+          <section className="panel email-panel">
+            <div className="panel-heading">
+              <Mail size={16} />
+              <h2>Connected inbox</h2>
+            </div>
+            <div className="email-actions">
+              <button className="button primary sm" type="button" onClick={connectDemoInbox}>Connect demo</button>
+              <button className="button secondary sm" type="button" onClick={checkGmailReadiness}>Check Gmail</button>
+              <button className="button secondary sm" type="button" aria-label="Sync inbox now" disabled={!activeInbox || unsyncedEmailCount === 0} onClick={syncInbox}><RefreshCw size={14} /></button>
+            </div>
+            {gmailStart && (
+              <div className={`gmail-summary ${gmailStart.status}`}>
+                <strong>{gmailStart.status === 'ready' ? 'Gmail OAuth ready' : 'Setup required'}</strong>
+                <p style={{ margin: '2px 0', fontSize: '0.7rem', color: '#94a3b8', lineHeight: 1.25 }}>{gmailStart.message}</p>
+                <small style={{ display: 'block', fontSize: '0.65rem', color: '#64748b' }}>Scopes: {gmailStart.scopes.join(', ')}</small>
+                {gmailStart.authUrl ? <a href={gmailStart.authUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: '4px' }}>Open consent screen</a> : null}
+              </div>
+            )}
+            {activeInbox ? (
+              <div className="inbox-summary">
+                <strong>{activeInbox.email}</strong>
+                <span>{activeInbox.provider} · {unsyncedEmailCount} unsynced emails</span>
+              </div>
+            ) : <p className="empty-state">No inbox connected.</p>}
+          </section>
 
-      <section className="grid">
-        <form id="lead-intake" className="panel" onSubmit={createLead}>
-          <div className="panel-heading">
-            <ClipboardCheck />
-            <div>
-              <h2>Inbound lead trigger</h2>
-              <p>This POSTs to the backend and creates a persistent agent run.</p>
+          {/* Lead Intake trigger form */}
+          <form className="panel lead-form" onSubmit={createLead}>
+            <div className="panel-heading">
+              <ClipboardCheck size={16} />
+              <h2>Lead trigger</h2>
+            </div>
+            <div className="scrollable-form-fields">
+              <Field label="Lead name"><input required value={lead.name} onChange={(event) => update('name', event.target.value)} placeholder="Ada Okafor" /></Field>
+              <Field label="Company"><input required value={lead.company} onChange={(event) => update('company', event.target.value)} placeholder="Ada Legal Group" /></Field>
+              <Field label="Contact"><input value={lead.contact} onChange={(event) => update('contact', event.target.value)} placeholder="+1 555 123 4567" /></Field>
+              <Field label="Service requested"><input required value={lead.service} onChange={(event) => update('service', event.target.value)} placeholder="Immigration" /></Field>
+              <div className="two-column">
+                <Field label="Budget"><input required value={lead.budget} onChange={(event) => update('budget', event.target.value)} placeholder="2500" /></Field>
+                <Field label="Urgency"><input required value={lead.urgency} onChange={(event) => update('urgency', event.target.value)} placeholder="ASAP" /></Field>
+              </div>
+              <Field label="Pain"><textarea required value={lead.pain} onChange={(event) => update('pain', event.target.value)} placeholder="Missing website leads after hours" /></Field>
+              <Field label="Preferred channel">
+                <select value={lead.channel} onChange={(event) => update('channel', event.target.value as LeadInput['channel'])}>
+                  <option>SMS</option><option>Email</option><option>Call</option>
+                </select>
+              </Field>
+            </div>
+            <button className="button primary full" type="submit"><Send size={14} /> Create lead</button>
+            <button className="button secondary full" type="button" onClick={reset}>Clear backend state</button>
+          </form>
+        </aside>
+
+        {/* Column 2: Autopilot Cockpit */}
+        <section className="workspace-column cockpit">
+          <div className="panel fill-height flex-layout">
+            <div className="panel-heading">
+              <Brain size={16} />
+              <h2>Autopilot cockpit</h2>
+            </div>
+            <div className="autopilot-card-compact">
+              <div className="autopilot-header">
+                <strong>{cycleReport ? `Last run ${new Date(cycleReport.startedAt).toLocaleTimeString()}` : 'Autopilot Ready'}</strong>
+                <div className="autopilot-buttons">
+                  <button className="button primary sm" type="button" onClick={() => void runAgentCycle()}><Bot size={14} /> Run cycle</button>
+                  <button className="button secondary sm" type="button" onClick={() => void runWorker()}><Play size={14} /> Run worker</button>
+                </div>
+              </div>
+              <p className="autopilot-summary">{cycleReport ? `Imported ${cycleReport.imported}, drafted ${cycleReport.createdDrafts}, approvals ${cycleReport.waitingApproval}, handoffs ${cycleReport.needsHuman}.` : 'One click checks connected inboxes, imports new leads, drafts due follow-ups, and summarizes human decisions.'}</p>
+            </div>
+            <div className="decision-stream-header">
+              <span>Agent Decision log</span>
+            </div>
+            <div className="decision-stream">
+              {latestDecisions.length ? latestDecisions.map((decision) => (
+                <article key={decision.id} className="decision-log-item">
+                  <div className="decision-meta">
+                    <span className="decision-tag">{decision.type}</span>
+                    <span className="decision-conf">{decision.confidence}% conf</span>
+                  </div>
+                  <strong>{decision.observation}</strong>
+                  <p>{decision.reasoning}</p>
+                  <small>{decision.action}</small>
+                </article>
+              )) : <p className="empty-state">No decisions logged yet.</p>}
             </div>
           </div>
-
-          <Field label="Lead name"><input required value={lead.name} onChange={(event) => update('name', event.target.value)} placeholder="Ada Okafor" /></Field>
-          <Field label="Company"><input required value={lead.company} onChange={(event) => update('company', event.target.value)} placeholder="Ada Legal Group" /></Field>
-          <Field label="Contact"><input value={lead.contact} onChange={(event) => update('contact', event.target.value)} placeholder="+1 555 123 4567" /></Field>
-          <Field label="Service requested"><input required value={lead.service} onChange={(event) => update('service', event.target.value)} placeholder="Immigration consultation" /></Field>
-          <div className="two-column">
-            <Field label="Budget"><input required value={lead.budget} onChange={(event) => update('budget', event.target.value)} placeholder="2500" /></Field>
-            <Field label="Urgency"><input required value={lead.urgency} onChange={(event) => update('urgency', event.target.value)} placeholder="ASAP" /></Field>
-          </div>
-          <Field label="Pain"><textarea required value={lead.pain} onChange={(event) => update('pain', event.target.value)} placeholder="Missing website leads after hours" /></Field>
-          <Field label="Preferred channel">
-            <select value={lead.channel} onChange={(event) => update('channel', event.target.value as LeadInput['channel'])}>
-              <option>SMS</option><option>Email</option><option>Call</option>
-            </select>
-          </Field>
-          <button className="button primary full" type="submit"><Send size={16} /> Create lead and draft response</button>
-          <button className="button secondary full" type="button" onClick={reset}>Clear backend state</button>
-        </form>
-
-        <section className="panel" id="agent-run">
-          <div className="panel-heading">
-            <Brain />
-            <div>
-              <h2>Live agent workbench</h2>
-              <p>{activeLead ? `${activeLead.company} · ${activeLead.status}` : 'No leads yet. Create one to start the loop.'}</p>
-            </div>
-          </div>
-
-          {activeLead ? (
-            <>
-              <div className="lead-summary">
-                <span className={`badge ${activeLead.status}`}>{activeLead.status.replace('_', ' ')}</span>
-                <strong>{activeLead.company} needs {activeLead.service}</strong>
-                <small>Budget {activeLead.budget} · Urgency {activeLead.urgency} · Channel {activeLead.channel}</small>
-              </div>
-
-              {activeLeadDecision && (
-                <div className="reasoning-box">
-                  <span>Latest agent reasoning</span>
-                  <strong>{activeLeadDecision.observation}</strong>
-                  <p>{activeLeadDecision.reasoning}</p>
-                  <small>{activeLeadDecision.action}</small>
-                </div>
-              )}
-
-              <div className="chat-thread">
-                <span>Conversation Thread</span>
-                <div className="chat-history">
-                  {activeMessages.length ? activeMessages.slice().reverse().map((message) => (
-                    <div key={message.id} className={`chat-message ${message.direction} ${message.status}`}>
-                      <div className="message-content">{message.body}</div>
-                      <div className="message-meta">
-                        {message.status === 'draft' ? 'Draft' : message.status} · {new Date(message.createdAt).toLocaleTimeString()}
-                      </div>
-                    </div>
-                  )) : <p className="empty-chat">No messages sent or received yet.</p>}
-                </div>
-              </div>
-
-              <div className="approval-box">
-                <span>{draft ? 'Draft waiting for owner approval' : scheduledFollowUp ? 'Follow-up scheduled' : 'No draft waiting'}</span>
-                <p>{draft?.body || (scheduledFollowUp ? `Scheduled for ${new Date(scheduledFollowUp.dueAt).toLocaleString()}. Use the demo worker to draft it now.` : 'Approve sent drafts, run the worker, or simulate a reply to move the workflow.')}</p>
-                <div className="action-row">
-                  <button className="button primary" type="button" disabled={!draft} onClick={approveDraft}>Approve and mark sent</button>
-                  <button className="button secondary" type="button" disabled={!scheduledFollowUp} onClick={() => void runWorker({ force: true })}>Draft next follow-up now</button>
-                </div>
-              </div>
-
-              <div className="reply-box">
-                <Field label="Simulate inbound reply">
-                  <textarea value={reply} onChange={(event) => setReply(event.target.value)} />
-                </Field>
-                <button className="button secondary" type="button" onClick={recordReply}><MessageSquareReply size={16} /> Record reply</button>
-              </div>
-
-              <div className="agent-events">
-                {activeTimeline.map((event) => (
-                  <article key={event.id} className="complete">
-                    <CheckCircle2 size={18} />
-                    <div><strong>{event.label}</strong><p>{event.detail}</p><small>{new Date(event.createdAt).toLocaleString()}</small></div>
-                  </article>
-                ))}
-              </div>
-            </>
-          ) : <p className="empty-state">The backend is alive. The agent is waiting for the first inbound lead.</p>}
         </section>
-      </section>
 
-      <section className="panel sequence-panel">
-        <div className="panel-heading"><Bot /><div><h2>Task queue and message ledger</h2><p>These are real records from the backend state file.</p></div></div>
-        <div className="queue-grid">
-          <div>
-            <h3>Open tasks</h3>
-            <div className="steps">{activeTasks.map((task) => <article key={task.id}><span>{task.type} · {task.status}</span><strong>{new Date(task.dueAt).toLocaleString()}</strong><p>{task.note}</p></article>)}</div>
+        {/* Column 3: Live Agent Workbench */}
+        <section className="workspace-column workbench">
+          <div className="panel fill-height flex-layout">
+            <div className="panel-heading">
+              <Bot size={16} />
+              <h2>Live agent workbench</h2>
+            </div>
+
+            {activeLead ? (
+              <div className="workbench-content">
+                <div className="lead-summary-badge">
+                  <span className={`badge ${activeLead.status}`}>{activeLead.status.replace('_', ' ')}</span>
+                  <strong>{activeLead.name} ({activeLead.company})</strong>
+                  <p>Needs: {activeLead.service} · Budget: {activeLead.budget} · Urgency: {activeLead.urgency} · Channel: {activeLead.channel}</p>
+                </div>
+
+                <div className="workbench-middle-section">
+                  {activeLeadDecision && (
+                    <div className="reasoning-box-compact">
+                      <span>Reasoning</span>
+                      <strong>{activeLeadDecision.observation}</strong>
+                      <p>{activeLeadDecision.reasoning}</p>
+                      <small>{activeLeadDecision.action}</small>
+                    </div>
+                  )}
+
+                  <div className="agent-timeline-compact">
+                    <span>Timeline & Tasks</span>
+                    <div className="timeline-scroll">
+                      {activeTasks.map((task) => (
+                        <div key={task.id} className="timeline-event-item task-item">
+                          <ClipboardCheck size={14} />
+                          <div>
+                            <strong>{task.type} · {task.status}</strong>
+                            <p>{task.note}</p>
+                            <small>Due: {new Date(task.dueAt).toLocaleTimeString()}</small>
+                          </div>
+                        </div>
+                      ))}
+                      {activeTimeline.map((event) => (
+                        <div key={event.id} className="timeline-event-item">
+                          <CheckCircle2 size={14} />
+                          <div>
+                            <strong>{event.label}</strong>
+                            <p>{event.detail}</p>
+                            <small>{new Date(event.createdAt).toLocaleTimeString()}</small>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="chat-thread-section">
+                  <span>Conversation Thread</span>
+                  <div className="chat-history">
+                    {activeMessages.length ? activeMessages.slice().reverse().map((message) => (
+                      <div key={message.id} className={`chat-message ${message.direction} ${message.status}`}>
+                        <div className="message-content">{message.body}</div>
+                        <div className="message-meta">
+                          {message.status === 'draft' ? 'Draft' : message.status} · {new Date(message.createdAt).toLocaleTimeString()}
+                        </div>
+                      </div>
+                    )) : <p className="empty-chat">No messages sent or received yet.</p>}
+                  </div>
+                </div>
+
+                <div className="workbench-actions">
+                  <div className="approval-row">
+                    <div className="draft-preview-note">
+                      <strong>{draft ? 'Draft waiting for owner approval' : scheduledFollowUp ? 'Follow-up scheduled' : 'No draft waiting'}</strong>
+                      <p>{draft?.body || (scheduledFollowUp ? `Scheduled for ${new Date(scheduledFollowUp.dueAt).toLocaleString()}. Use the worker button to force draft it now.` : 'Approve sent drafts, run the worker, or simulate a reply to move the workflow.')}</p>
+                    </div>
+                    <div className="approval-buttons">
+                      <button className="button primary" type="button" disabled={!draft} onClick={approveDraft}>Approve & Send</button>
+                      <button className="button secondary" type="button" disabled={!scheduledFollowUp} onClick={() => void runWorker({ force: true })}>Draft next follow-up now</button>
+                    </div>
+                  </div>
+
+                  <div className="reply-sim-row">
+                    <input value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Type simulated lead reply here..." />
+                    <button className="button secondary" type="button" onClick={recordReply}><MessageSquareReply size={16} /> Record reply</button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="empty-state">The backend is alive. The agent is waiting for the first inbound lead.</p>
+            )}
           </div>
-          <div>
-            <h3>Messages</h3>
-            <div className="steps">{activeMessages.map((message) => <article key={message.id}><span>{message.direction} · {message.status}</span><strong>{new Date(message.createdAt).toLocaleString()}</strong><p>{message.body}</p></article>)}</div>
-          </div>
-        </div>
-      </section>
-    </main>
+        </section>
+      </div>
+    </div>
   );
 }
