@@ -27,11 +27,11 @@ describe('real follow-up agent engine', () => {
     expect(state.decisions).toContainEqual(expect.objectContaining({ type: 'triage', confidence: 92 }));
   });
 
-  it('approves the draft, simulates sending, and schedules the next follow-up task', () => {
+  it('approves the draft, simulates sending, and schedules the next follow-up task', async () => {
     const engine = createAgentEngine({ now: () => new Date('2026-05-17T20:00:00.000Z') });
     const run = engine.createLead(leadInput);
 
-    const approved = engine.approveMessage(run.message.id);
+    const approved = await engine.approveMessage(run.message.id);
     const state = engine.getState();
 
     expect(approved.status).toBe('sent');
@@ -41,11 +41,11 @@ describe('real follow-up agent engine', () => {
     expect(state.decisions).toContainEqual(expect.objectContaining({ type: 'schedule', action: 'Scheduled the next follow-up for 2 hours from now.' }));
   });
 
-  it('worker turns due follow-up tasks into new approval drafts', () => {
+  it('worker turns due follow-up tasks into new approval drafts', async () => {
     const current = { value: new Date('2026-05-17T20:00:00.000Z') };
     const engine = createAgentEngine({ now: () => current.value });
     const run = engine.createLead(leadInput);
-    engine.approveMessage(run.message.id);
+    await engine.approveMessage(run.message.id);
 
     current.value = new Date('2026-05-17T22:01:00.000Z');
     const result = engine.runDueTasks();
@@ -57,10 +57,10 @@ describe('real follow-up agent engine', () => {
     expect(state.timeline).toContainEqual(expect.objectContaining({ label: 'Agent drafted scheduled follow-up' }));
   });
 
-  it('can force scheduled follow-up tasks during demos without waiting two hours', () => {
+  it('can force scheduled follow-up tasks during demos without waiting two hours', async () => {
     const engine = createAgentEngine({ now: () => new Date('2026-05-17T20:00:00.000Z') });
     const run = engine.createLead(leadInput);
-    engine.approveMessage(run.message.id);
+    await engine.approveMessage(run.message.id);
 
     const result = engine.runDueTasks({ force: true });
     const state = engine.getState();
@@ -102,10 +102,10 @@ describe('real follow-up agent engine', () => {
     expect(state.timeline).toContainEqual(expect.objectContaining({ label: 'Email lead imported' }));
   });
 
-  it('classifies a positive reply as needing human booking review', () => {
+  it('classifies a positive reply as needing human booking review', async () => {
     const engine = createAgentEngine({ now: () => new Date('2026-05-17T20:00:00.000Z') });
     const run = engine.createLead(leadInput);
-    engine.approveMessage(run.message.id);
+    await engine.approveMessage(run.message.id);
 
     const reply = engine.recordReply(run.lead.id, 'Yes, tomorrow at 10 works for me.');
     const state = engine.getState();

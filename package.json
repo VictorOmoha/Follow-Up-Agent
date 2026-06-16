@@ -18,6 +18,7 @@
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
+    "twilio": "^6.0.2",
     "typescript": "latest",
     "vite": "latest"
   },

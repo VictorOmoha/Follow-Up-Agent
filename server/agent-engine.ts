@@ -1,4 +1,5 @@
 import { buildFollowUpPlan, type LeadInput } from '../src/lib/agent';
+import { sendSms } from './twilio';
 
 export type LeadStatus = 'new' | 'waiting_approval' | 'contacted' | 'needs_human' | 'nurture' | 'closed';
 export type MessageStatus = 'draft' | 'sent' | 'received';
@@ -231,7 +232,7 @@ export function createAgentEngine(options: EngineOptions = {}) {
     return { lead: structuredClone(lead), message: structuredClone(message), task: structuredClone(task) };
   }
 
-  function approveMessage(messageId: string) {
+  async function approveMessage(messageId: string) {
     const timestamp = now().toISOString();
     const message = state.messages.find((item) => item.id === messageId);
     if (!message) throw new Error(`Message not found: ${messageId}`);
@@ -257,6 +258,17 @@ export function createAgentEngine(options: EngineOptions = {}) {
       createdAt: timestamp,
     });
     addTimeline(lead.id, 'Owner approved and message sent', message.body);
+
+    if (lead.channel === 'SMS') {
+      const contactPhone = lead.contact || '+15550000000';
+      const twilioResult = await sendSms(contactPhone, message.body);
+      if (!twilioResult.success) {
+        addTimeline(lead.id, 'Twilio SMS failed to send', `Error: ${twilioResult.error}`);
+      } else {
+        addTimeline(lead.id, 'Twilio SMS sent successfully', `SID: ${twilioResult.sid}`);
+      }
+    }
+
     addTimeline(lead.id, 'Agent scheduled next follow-up', 'Next follow-up task is due in 2 hours if the lead does not reply.');
     addDecision({
       leadId: lead.id,

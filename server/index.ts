@@ -130,7 +130,7 @@ async function start() {
 
       const approveMatch = match(url.pathname, /^\/api\/messages\/([^/]+)\/approve$/);
       if (request.method === 'POST' && approveMatch) {
-        const message = engine.approveMessage(approveMatch[1]);
+        const message = await engine.approveMessage(approveMatch[1]);
         sendJson(response, 200, message);
         return;
       }
