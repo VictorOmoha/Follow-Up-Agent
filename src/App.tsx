@@ -385,6 +385,20 @@ export default function App() {
                 </div>
               )}
 
+              <div className="chat-thread">
+                <span>Conversation Thread</span>
+                <div className="chat-history">
+                  {activeMessages.length ? activeMessages.slice().reverse().map((message) => (
+                    <div key={message.id} className={`chat-message ${message.direction} ${message.status}`}>
+                      <div className="message-content">{message.body}</div>
+                      <div className="message-meta">
+                        {message.status === 'draft' ? 'Draft' : message.status} · {new Date(message.createdAt).toLocaleTimeString()}
+                      </div>
+                    </div>
+                  )) : <p className="empty-chat">No messages sent or received yet.</p>}
+                </div>
+              </div>
+
               <div className="approval-box">
                 <span>{draft ? 'Draft waiting for owner approval' : scheduledFollowUp ? 'Follow-up scheduled' : 'No draft waiting'}</span>
                 <p>{draft?.body || (scheduledFollowUp ? `Scheduled for ${new Date(scheduledFollowUp.dueAt).toLocaleString()}. Use the demo worker to draft it now.` : 'Approve sent drafts, run the worker, or simulate a reply to move the workflow.')}</p>
