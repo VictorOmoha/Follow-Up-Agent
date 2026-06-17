@@ -1,26 +1,33 @@
 import { spawn } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 
+function getTestPort() {
+  return 18_989 + Number(process.env.VITEST_POOL_ID || process.env.VITEST_WORKER_ID || 0);
+}
+
 describe('webhook api integration', () => {
   it('should ingest webhooks and map fields correctly', async () => {
-    const testPort = 8989;
-    const proc = spawn('npx', ['tsx', 'server/index.ts'], {
-      env: { ...process.env, AGENT_API_PORT: String(testPort) },
-      shell: true,
+    const testPort = getTestPort();
+    const proc = spawn(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'server/index.ts'], {
+      env: { ...process.env, AGENT_API_PORT: String(testPort), AGENT_PERSISTENCE: 'local' },
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
 
     // Wait for server to start
     await new Promise<void>((resolve, reject) => {
       let resolved = false;
+      let output = '';
       const timeout = setTimeout(() => {
         if (!resolved) {
           resolved = true;
-          reject(new Error('Server start timed out after 15s'));
+          proc.kill('SIGTERM');
+          reject(new Error(`Server start timed out after 15s. Output:\n${output}`));
         }
       }, 15000);
 
-      proc.stdout?.on('data', (data) => {
+      const onData = (data: Buffer) => {
         const str = data.toString();
+        output += str;
         if (str.includes('Omoha Follow-Up Agent API running on')) {
           if (!resolved) {
             resolved = true;
@@ -28,13 +35,24 @@ describe('webhook api integration', () => {
             resolve();
           }
         }
-      });
+      };
+
+      proc.stdout?.on('data', onData);
+      proc.stderr?.on('data', onData);
 
       proc.on('error', (err) => {
         if (!resolved) {
           resolved = true;
           clearTimeout(timeout);
           reject(err);
+        }
+      });
+
+      proc.on('exit', (code, signal) => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeout);
+          reject(new Error(`Server exited before listening: code=${code} signal=${signal}. Output:\n${output}`));
         }
       });
     });
@@ -87,7 +105,7 @@ describe('webhook api integration', () => {
       expect(data2.lead.pain).toBe('broken pipes');
       expect(data2.lead.contact).toBe('123-456-7890');
     } finally {
-      proc.kill();
+      proc.kill('SIGTERM');
     }
   }, 25000); // 25s timeout
 });

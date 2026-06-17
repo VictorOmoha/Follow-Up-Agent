@@ -85,7 +85,7 @@ type AgentState = {
   config?: {
     bookingLink: string;
     autopilotEnabled?: boolean;
-    geminiApiKey?: string;
+    geminiApiKeyConfigured?: boolean;
   };
 };
 
@@ -280,16 +280,6 @@ export default function App() {
     }
   }
 
-  useEffect(() => {
-    if (state.config?.geminiApiKey) {
-      const key = state.config.geminiApiKey;
-      const t = setTimeout(() => {
-        setGeminiApiKey(key);
-      }, 0);
-      return () => clearTimeout(t);
-    }
-  }, [state.config?.geminiApiKey]);
-
   async function saveGeminiKey() {
     try {
       const nextState = await api<AgentState>('/config', {
@@ -297,6 +287,7 @@ export default function App() {
         body: JSON.stringify({ geminiApiKey: geminiApiKey.trim() }),
       });
       setState({ ...emptyState, ...nextState, decisions: nextState.decisions ?? [] });
+      setGeminiApiKey('');
       alert('Gemini API Key saved successfully!');
     } catch (err) {
       console.error('Failed to save Gemini key:', err);
@@ -467,8 +458,8 @@ export default function App() {
               </button>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.68rem', fontWeight: 700, color: state.config?.geminiApiKey ? '#4ade80' : '#f59e0b' }}>
-                Mode: {state.config?.geminiApiKey ? 'Live Gemini AI' : 'Rules Fallback'}
+              <span style={{ fontSize: '0.68rem', fontWeight: 700, color: state.config?.geminiApiKeyConfigured ? '#4ade80' : '#f59e0b' }}>
+                Mode: {state.config?.geminiApiKeyConfigured ? 'Live Gemini AI' : 'Rules Fallback'}
               </span>
               <button
                 className="button primary sm"

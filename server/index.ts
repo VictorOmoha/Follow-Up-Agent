@@ -4,6 +4,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { createAgentEngine, type AgentState } from './agent-engine';
 import { buildGmailOAuthStartFromEnv } from './gmail-oauth';
 import { loadStateFromFirestore, saveStateToFirestore } from './db';
+import { toPublicAgentState, toPublicInbox } from './public-state';
 
 // Load .env file programmatically (built-in Node 20.12+)
 if (typeof process.loadEnvFile === 'function') {
@@ -98,7 +99,7 @@ async function start() {
 
     try {
       if (request.method === 'GET' && url.pathname === '/api/state') {
-        sendJson(response, 200, engine.getState());
+        sendJson(response, 200, toPublicAgentState(engine.getState()));
         return;
       }
 
@@ -406,14 +407,14 @@ async function start() {
       if (request.method === 'POST' && url.pathname === '/api/inboxes') {
         const body = await readJson(request) as Parameters<typeof engine.connectEmailInbox>[0];
         const inbox = engine.connectEmailInbox(body);
-        sendJson(response, 201, inbox);
+        sendJson(response, 201, toPublicInbox(inbox));
         return;
       }
 
       const syncInboxMatch = match(url.pathname, /^\/api\/inboxes\/([^/]+)\/sync$/);
       if (request.method === 'POST' && syncInboxMatch) {
         const result = await engine.syncEmailInbox(syncInboxMatch[1]);
-        sendJson(response, 200, result);
+        sendJson(response, 200, { ...result, inbox: toPublicInbox(result.inbox) });
         return;
       }
 
@@ -460,13 +461,13 @@ async function start() {
           };
         }
         engine.reset(state);
-        sendJson(response, 200, engine.getState());
+        sendJson(response, 200, toPublicAgentState(engine.getState()));
         return;
       }
 
       if (request.method === 'POST' && url.pathname === '/api/reset') {
         engine.reset();
-        sendJson(response, 200, engine.getState());
+        sendJson(response, 200, toPublicAgentState(engine.getState()));
         return;
       }
 
