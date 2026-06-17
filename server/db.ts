@@ -9,6 +9,7 @@ if (!getApps().length) {
 }
 
 const db = getFirestore();
+db.settings({ ignoreUndefinedProperties: true });
 const stateDoc = db.collection('settings').doc('state');
 
 export async function loadStateFromFirestore(): Promise<AgentState | undefined> {

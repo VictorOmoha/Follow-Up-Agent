@@ -103,13 +103,302 @@ async function start() {
       }
 
       if (request.method === 'GET' && url.pathname === '/api/inboxes/gmail/start') {
-        sendJson(response, 200, buildGmailOAuthStartFromEnv());
+        const emailParam = url.searchParams.get('email') || undefined;
+        sendJson(response, 200, buildGmailOAuthStartFromEnv(process.env, emailParam));
+        return;
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/inboxes/gmail/mock-auth') {
+        const email = url.searchParams.get('email') || '';
+        const stateVal = url.searchParams.get('state') || '';
+        response.writeHead(200, { 'Content-Type': 'text/html' });
+        response.end(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Mock Google Sign-In</title>
+            <style>
+              body {
+                background-color: #030712;
+                color: #f3f4f6;
+                font-family: system-ui, -apple-system, sans-serif;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                margin: 0;
+              }
+              .card {
+                background: rgba(30, 41, 59, 0.7);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 12px;
+                padding: 32px;
+                max-width: 400px;
+                width: 100%;
+                text-align: center;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+              }
+              h1 {
+                font-size: 1.5rem;
+                margin-bottom: 8px;
+                background: linear-gradient(135deg, #4ade80, #3b82f6);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+              }
+              p {
+                color: #94a3b8;
+                font-size: 0.875rem;
+                line-height: 1.5;
+                margin-bottom: 24px;
+              }
+              .email-badge {
+                display: inline-block;
+                background: rgba(59, 130, 246, 0.1);
+                border: 1px solid rgba(59, 130, 246, 0.2);
+                color: #60a5fa;
+                padding: 6px 12px;
+                border-radius: 20px;
+                font-size: 0.85rem;
+                margin-bottom: 24px;
+                font-weight: 500;
+              }
+              .scopes {
+                text-align: left;
+                background: rgba(0, 0, 0, 0.2);
+                padding: 16px;
+                border-radius: 8px;
+                margin-bottom: 24px;
+                border: 1px solid rgba(255, 255, 255, 0.05);
+              }
+              .scopes-title {
+                font-size: 0.75rem;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                color: #64748b;
+                margin-bottom: 8px;
+                font-weight: 700;
+              }
+              .scope-item {
+                font-size: 0.8rem;
+                margin: 4px 0;
+                color: #cbd5e1;
+                display: flex;
+                align-items: center;
+              }
+              .scope-item::before {
+                content: "✓";
+                color: #4ade80;
+                margin-right: 8px;
+                font-weight: bold;
+              }
+              .buttons {
+                display: flex;
+                gap: 12px;
+              }
+              button, a.btn {
+                flex: 1;
+                padding: 10px 16px;
+                border-radius: 6px;
+                font-size: 0.875rem;
+                font-weight: 600;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.2s;
+              }
+              .btn-primary {
+                background: #4ade80;
+                color: #030712;
+                border: none;
+              }
+              .btn-primary:hover {
+                background: #22c55e;
+              }
+              .btn-secondary {
+                background: transparent;
+                color: #94a3b8;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+              }
+              .btn-secondary:hover {
+                background: rgba(255, 255, 255, 0.05);
+                color: #f3f4f6;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <h1>Mock Google Sign-In</h1>
+              <p>Omoha Follow-Up Agent is requesting permission to access your Google Account:</p>
+              <div class="email-badge">${email || 'unknown@example.com'}</div>
+              
+              <div class="scopes">
+                <div class="scopes-title">Requested Permissions</div>
+                <div class="scope-item">View your email messages (gmail.readonly)</div>
+                <div class="scope-item">Send email on your behalf (gmail.send)</div>
+                <div class="scope-item">Manage your mail metadata (gmail.modify)</div>
+              </div>
+
+              <div class="buttons">
+                <a class="btn btn-secondary" href="/#cancelled">Cancel</a>
+                <a class="btn btn-primary" href="/api/inboxes/gmail/callback?code=mock_code_${encodeURIComponent(email)}&state=${encodeURIComponent(stateVal)}">Grant Access</a>
+              </div>
+            </div>
+          </body>
+          </html>
+        `);
+        return;
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/inboxes/gmail/callback') {
+        const code = url.searchParams.get('code') || '';
+
+        let email = '';
+        let accessToken = 'mock_access_token';
+        let refreshToken = 'mock_refresh_token';
+        let expiresAt = Date.now() + 3600 * 1000;
+
+        if (code.startsWith('mock_code_')) {
+          email = decodeURIComponent(code.substring('mock_code_'.length));
+        } else {
+          const clientId = process.env.GMAIL_CLIENT_ID;
+          const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+          
+          if (!clientId || !clientSecret) {
+            throw new Error('GMAIL_CLIENT_ID or GMAIL_CLIENT_SECRET is missing');
+          }
+
+          const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+              client_id: clientId,
+              client_secret: clientSecret,
+              code,
+              grant_type: 'authorization_code',
+              redirect_uri: 'http://127.0.0.1:8787/api/inboxes/gmail/callback',
+            }),
+          });
+
+          if (!tokenRes.ok) {
+            const errBody = await tokenRes.text();
+            throw new Error(`Failed to exchange OAuth code: ${errBody}`);
+          }
+
+          const tokens = await tokenRes.json() as {
+            access_token: string;
+            refresh_token?: string;
+            expires_in: number;
+          };
+
+          accessToken = tokens.access_token;
+          if (tokens.refresh_token) {
+            refreshToken = tokens.refresh_token;
+          }
+          expiresAt = Date.now() + tokens.expires_in * 1000;
+
+          const profileRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
+
+          if (!profileRes.ok) {
+            throw new Error(`Failed to fetch Google user profile: ${await profileRes.text()}`);
+          }
+
+          const profile = await profileRes.json() as { emailAddress: string };
+          email = profile.emailAddress;
+        }
+
+        engine.connectEmailInbox({
+          provider: 'gmail',
+          email,
+          credentials: {
+            accessToken,
+            refreshToken,
+            expiresAt,
+          },
+        });
+
+        // Redirect back to frontend
+        const referer = request.headers.referer;
+        const redirectUrl = (referer && !referer.includes('/api/inboxes/gmail/mock-auth'))
+          ? referer
+          : `http://localhost:5173/`;
+        response.writeHead(302, { Location: redirectUrl });
+        response.end();
         return;
       }
 
       if (request.method === 'POST' && url.pathname === '/api/leads') {
         const body = await readJson(request);
-        const run = engine.createLead(body as Parameters<typeof engine.createLead>[0]);
+        const run = await engine.createLead(body as Parameters<typeof engine.createLead>[0]);
+        sendJson(response, 201, run);
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/webhooks/lead') {
+        interface WebhookPayload {
+          name?: string;
+          fullName?: string;
+          firstName?: string;
+          lastName?: string;
+          company?: string;
+          org?: string;
+          organization?: string;
+          service?: string;
+          requestedService?: string;
+          interest?: string;
+          budget?: string | number;
+          budgetAmount?: string | number;
+          value?: string | number;
+          urgency?: string;
+          timeframe?: string;
+          timeline?: string;
+          pain?: string;
+          description?: string;
+          message?: string;
+          notes?: string;
+          channel?: string;
+          preferredChannel?: string;
+          contact?: string;
+          email?: string;
+          phone?: string;
+        }
+        const body = (await readJson(request)) as WebhookPayload;
+
+        // Robust mapping of incoming JSON body to standard LeadInput
+        const name = body.name || body.fullName || [body.firstName, body.lastName].filter(Boolean).join(' ') || 'Unknown Webhook Lead';
+        const company = body.company || body.org || body.organization || 'Self-Employed';
+        const service = body.service || body.requestedService || body.interest || 'General Inquiry';
+        const budget = String(body.budget || body.budgetAmount || body.value || 'unknown');
+        const urgency = body.urgency || body.timeframe || body.timeline || 'unknown';
+        const pain = body.pain || body.description || body.message || body.notes || 'No pain described';
+        
+        let channel: 'SMS' | 'Email' | 'Call' = 'Email';
+        const rawChannel = String(body.channel || body.preferredChannel || '').toUpperCase();
+        if (rawChannel === 'SMS') channel = 'SMS';
+        else if (rawChannel === 'CALL') channel = 'Call';
+        else if (rawChannel === 'EMAIL') channel = 'Email';
+
+        const contact = body.contact || body.email || body.phone || 'none';
+
+        const leadInput = { name, company, service, budget, urgency, pain, channel, contact };
+        const run = await engine.createLead(leadInput);
+
+        const state = engine.getState();
+        const lead = state.leads.find((l) => l.id === run.lead.id);
+        if (lead) {
+          state.timeline.unshift({
+            id: `event_webhook_${Date.now()}`,
+            leadId: lead.id,
+            label: 'CRM Webhook intake',
+            detail: `Lead push from external CRM/Webform mapped successfully.`,
+            createdAt: new Date().toISOString(),
+          });
+          engine.reset(state);
+        }
+
         sendJson(response, 201, run);
         return;
       }
@@ -123,7 +412,7 @@ async function start() {
 
       const syncInboxMatch = match(url.pathname, /^\/api\/inboxes\/([^/]+)\/sync$/);
       if (request.method === 'POST' && syncInboxMatch) {
-        const result = engine.syncEmailInbox(syncInboxMatch[1]);
+        const result = await engine.syncEmailInbox(syncInboxMatch[1]);
         sendJson(response, 200, result);
         return;
       }
@@ -138,21 +427,40 @@ async function start() {
       const replyMatch = match(url.pathname, /^\/api\/leads\/([^/]+)\/replies$/);
       if (request.method === 'POST' && replyMatch) {
         const body = await readJson(request) as { body?: string };
-        const message = engine.recordReply(replyMatch[1], body.body || '');
+        const message = await engine.recordReply(replyMatch[1], body.body || '');
         sendJson(response, 201, message);
         return;
       }
 
       if (request.method === 'POST' && url.pathname === '/api/worker/run') {
         const body = await readJson(request) as { force?: boolean };
-        const result = engine.runDueTasks({ force: Boolean(body.force) });
+        const result = await engine.runDueTasks({ force: Boolean(body.force) });
         sendJson(response, 200, result);
         return;
       }
 
       if (request.method === 'POST' && url.pathname === '/api/agent/cycle') {
-        const result = engine.runAutonomousCycle();
+        const result = await engine.runAutonomousCycle();
         sendJson(response, 200, result);
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/config') {
+        const body = await readJson(request) as { bookingLink?: string; autopilotEnabled?: boolean; geminiApiKey?: string };
+        const state = engine.getState();
+        if (state.config) {
+          if (body.bookingLink !== undefined) state.config.bookingLink = body.bookingLink;
+          if (body.autopilotEnabled !== undefined) state.config.autopilotEnabled = body.autopilotEnabled;
+          if (body.geminiApiKey !== undefined) state.config.geminiApiKey = body.geminiApiKey;
+        } else {
+          state.config = {
+            bookingLink: body.bookingLink || 'https://calendar.google.com/calendar/appointments/schedules/demo',
+            autopilotEnabled: body.autopilotEnabled ?? false,
+            geminiApiKey: body.geminiApiKey || '',
+          };
+        }
+        engine.reset(state);
+        sendJson(response, 200, engine.getState());
         return;
       }
 

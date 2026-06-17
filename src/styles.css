@@ -182,6 +182,7 @@ a {
 .workspace-column.sidebar {
   width: 290px;
   flex-shrink: 0;
+  overflow-y: auto;
 }
 .workspace-column.cockpit {
   width: 360px;
@@ -742,6 +743,69 @@ textarea {
   font-style: italic;
   font-size: 0.85rem;
   margin: auto;
+}
+
+/* Owner Daily Digest & Calendar Link panels */
+.digest-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.digest-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+.digest-label-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.digest-label-group svg {
+  color: var(--accent-color);
+}
+.digest-label {
+  font-size: 0.72rem;
+  color: #cbd5e1;
+  font-weight: 600;
+}
+.digest-val {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.calendar-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.calendar-desc {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  margin: 0;
+  line-height: 1.3;
+}
+.calendar-link-wrapper {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  padding: 6px 8px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.calendar-link {
+  font-size: 0.7rem;
+  color: var(--primary-color);
+  text-decoration: underline;
+  word-break: break-all;
+  display: block;
+}
+.calendar-link:hover {
+  filter: brightness(1.2);
 }
 
 @media (max-width: 1024px) { 

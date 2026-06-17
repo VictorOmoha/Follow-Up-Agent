@@ -12,10 +12,24 @@ type TestState = {
   decisions: Array<Record<string, string | number>>;
   inboxes: Array<Record<string, string | string[]>>;
   emailMessages: Array<Record<string, string>>;
+  config?: {
+    bookingLink: string;
+  };
 };
 
 function makeState(): TestState {
-  return { leads: [], messages: [], tasks: [], timeline: [], decisions: [], inboxes: [], emailMessages: [] };
+  return {
+    leads: [],
+    messages: [],
+    tasks: [],
+    timeline: [],
+    decisions: [],
+    inboxes: [],
+    emailMessages: [],
+    config: {
+      bookingLink: 'https://calendar.google.com/calendar/appointments/schedules/demo',
+    },
+  };
 }
 
 function installApiMock() {
@@ -25,7 +39,7 @@ function installApiMock() {
     const body = init?.body ? JSON.parse(String(init.body)) : {};
 
     if (path === '/state') return Response.json(state);
-    if (path === '/inboxes/gmail/start') {
+    if (path.startsWith('/inboxes/gmail/start')) {
       return Response.json({
         status: 'setup_required',
         provider: 'gmail',
@@ -166,7 +180,8 @@ describe('Omoha Follow-Up Agent', () => {
     render(<App />);
     await waitFor(() => expect(screen.getByText(/API Online/i)).toBeInTheDocument());
 
-    await userEvent.click(screen.getByRole('button', { name: /Connect demo/i }));
+    await userEvent.type(screen.getByLabelText(/Inbox email/i), 'owner@omohasolutions.demo');
+    await userEvent.click(screen.getByRole('button', { name: /^Connect$/i }));
     await waitFor(() => expect(screen.getByText(/owner@omohasolutions.demo/i)).toBeInTheDocument());
     expect(screen.getByText(/2 unsynced emails/i)).toBeInTheDocument();
 
@@ -207,5 +222,18 @@ describe('Omoha Follow-Up Agent', () => {
 
     await waitFor(() => expect(screen.getByText(/Agent force-drafted scheduled follow-up/i)).toBeInTheDocument());
     expect(screen.getAllByText(/Still happy to help with immigration consultation/i).length).toBeGreaterThan(0);
+  });
+
+  it('renders the Owner Daily Digest and Calendar Link cards', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/API Online/i)).toBeInTheDocument());
+
+    expect(screen.getByRole('heading', { name: /Owner Daily Digest/i })).toBeInTheDocument();
+    expect(screen.getByText(/Money on Table/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Hot Leads/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Stalled Leads/i)).toBeInTheDocument();
+
+    expect(screen.getByRole('heading', { name: /Calendar Link/i })).toBeInTheDocument();
+    expect(screen.getByText('https://calendar.google.com/calendar/appointments/schedules/demo')).toBeInTheDocument();
   });
 });

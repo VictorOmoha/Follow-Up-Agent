@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Bot, Brain, CalendarCheck, CheckCircle2, CircleDollarSign, ClipboardCheck, Flame, Mail, MessageSquareReply, PhoneCall, Play, RefreshCw, Send } from 'lucide-react';
-import { type LeadInput } from './lib/agent';
+import { Bot, Brain, CalendarCheck, CheckCircle2, CircleDollarSign, ClipboardCheck, Clock, Flame, Link, Mail, MessageSquareReply, PhoneCall, Play, RefreshCw, Send } from 'lucide-react';
+import { type LeadInput, scoreLead } from './lib/agent';
 import './styles.css';
 
 const API_BASE = 'http://127.0.0.1:8787/api';
@@ -82,6 +82,11 @@ type AgentState = {
   decisions: AgentDecisionRecord[];
   inboxes: ConnectedInbox[];
   emailMessages: EmailMessageRecord[];
+  config?: {
+    bookingLink: string;
+    autopilotEnabled?: boolean;
+    geminiApiKey?: string;
+  };
 };
 
 type GmailOAuthStart = {
@@ -137,11 +142,14 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
 export default function App() {
   const [lead, setLead] = useState(emptyLead);
   const [reply, setReply] = useState('Yes, tomorrow at 10 works for me.');
+  const [inboxEmail, setInboxEmail] = useState('');
   const [state, setState] = useState<AgentState>(emptyState);
   const [gmailStart, setGmailStart] = useState<GmailOAuthStart | null>(null);
   const [cycleReport, setCycleReport] = useState<AgentCycleReport | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [geminiApiKey, setGeminiApiKey] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
 
   async function refresh() {
     try {
@@ -188,7 +196,16 @@ export default function App() {
     const scheduled = state.tasks.filter((task) => task.status === 'scheduled').length;
     const hot = state.leads.filter((item) => item.status === 'waiting_approval' || item.status === 'needs_human').length;
     const pipeline = state.leads.reduce((sum, item) => sum + Number.parseFloat((item.budget || '0').replace(/[^0-9.]/g, '') || '0'), 0);
-    return { waitingApproval, scheduled, hot, pipeline };
+
+    const activeLeads = state.leads.filter((lead) => lead.status !== 'closed' && lead.status !== 'nurture');
+    const moneyOnTable = activeLeads.reduce((sum, lead) => sum + Number.parseFloat((lead.budget || '0').replace(/[^0-9.]/g, '') || '0'), 0);
+    const hotLeadsCount = activeLeads.filter((lead) => scoreLead(lead).temperature === 'Hot').length;
+    const stalledLeadsCount = activeLeads.filter((lead) => {
+      const lastUpdateMs = new Date(lead.updatedAt).getTime();
+      return (new Date().getTime() - lastUpdateMs) > 24 * 60 * 60 * 1000;
+    }).length;
+
+    return { waitingApproval, scheduled, hot, pipeline, moneyOnTable, hotLeadsCount, stalledLeadsCount };
   }, [state]);
 
   function update<K extends keyof typeof lead>(key: K, value: (typeof lead)[K]) {
@@ -225,8 +242,19 @@ export default function App() {
   }
 
   async function connectDemoInbox() {
-    await api('/inboxes', { method: 'POST', body: JSON.stringify({ provider: 'demo', email: 'owner@omohasolutions.demo' }) });
-    await refresh();
+    const emailToConnect = inboxEmail.trim() || 'owner@omohasolutions.demo';
+    if (emailToConnect.endsWith('.demo')) {
+      await api('/inboxes', { method: 'POST', body: JSON.stringify({ provider: 'demo', email: emailToConnect }) });
+      setInboxEmail('');
+      await refresh();
+    } else {
+      const startResult = await api<GmailOAuthStart>(`/inboxes/gmail/start?email=${encodeURIComponent(emailToConnect)}`);
+      if (startResult.authUrl) {
+        window.location.href = startResult.authUrl;
+      } else {
+        alert(startResult.message || 'Setup required for Gmail.');
+      }
+    }
   }
 
   async function syncInbox() {
@@ -237,6 +265,43 @@ export default function App() {
 
   async function checkGmailReadiness() {
     setGmailStart(await api<GmailOAuthStart>('/inboxes/gmail/start'));
+  }
+
+  async function toggleAutopilot() {
+    try {
+      const current = !!state.config?.autopilotEnabled;
+      const nextState = await api<AgentState>('/config', {
+        method: 'POST',
+        body: JSON.stringify({ autopilotEnabled: !current }),
+      });
+      setState({ ...emptyState, ...nextState, decisions: nextState.decisions ?? [] });
+    } catch (err) {
+      console.error('Failed to toggle autopilot:', err);
+    }
+  }
+
+  useEffect(() => {
+    if (state.config?.geminiApiKey) {
+      const key = state.config.geminiApiKey;
+      const t = setTimeout(() => {
+        setGeminiApiKey(key);
+      }, 0);
+      return () => clearTimeout(t);
+    }
+  }, [state.config?.geminiApiKey]);
+
+  async function saveGeminiKey() {
+    try {
+      const nextState = await api<AgentState>('/config', {
+        method: 'POST',
+        body: JSON.stringify({ geminiApiKey: geminiApiKey.trim() }),
+      });
+      setState({ ...emptyState, ...nextState, decisions: nextState.decisions ?? [] });
+      alert('Gemini API Key saved successfully!');
+    } catch (err) {
+      console.error('Failed to save Gemini key:', err);
+      alert('Failed to save Gemini API key.');
+    }
   }
 
   async function reset() {
@@ -292,8 +357,18 @@ export default function App() {
               <Mail size={16} />
               <h2>Connected inbox</h2>
             </div>
+            <div style={{ marginBottom: '8px' }}>
+              <input 
+                type="email" 
+                placeholder="Enter your email (e.g. victor@example.com)" 
+                aria-label="Inbox email"
+                value={inboxEmail} 
+                onChange={(event) => setInboxEmail(event.target.value)}
+                style={{ fontSize: '0.75rem', padding: '6px 8px' }}
+              />
+            </div>
             <div className="email-actions">
-              <button className="button primary sm" type="button" onClick={connectDemoInbox}>Connect demo</button>
+              <button className="button primary sm" type="button" onClick={connectDemoInbox}>Connect</button>
               <button className="button secondary sm" type="button" onClick={checkGmailReadiness}>Check Gmail</button>
               <button className="button secondary sm" type="button" aria-label="Sync inbox now" disabled={!activeInbox || unsyncedEmailCount === 0} onClick={syncInbox}><RefreshCw size={14} /></button>
             </div>
@@ -311,6 +386,160 @@ export default function App() {
                 <span>{activeInbox.provider} · {unsyncedEmailCount} unsynced emails</span>
               </div>
             ) : <p className="empty-state">No inbox connected.</p>}
+          </section>
+
+          {/* Owner Daily Digest card */}
+          <section className="panel digest-panel" style={{ flexShrink: 0 }}>
+            <div className="panel-heading">
+              <Brain size={16} />
+              <h2>Owner Daily Digest</h2>
+            </div>
+            <div className="digest-list">
+              <div className="digest-item">
+                <div className="digest-label-group">
+                  <CircleDollarSign size={14} />
+                  <span className="digest-label">Money on Table</span>
+                </div>
+                <strong className="digest-val">${stats.moneyOnTable.toLocaleString()}</strong>
+              </div>
+              <div className="digest-item">
+                <div className="digest-label-group">
+                  <Flame size={14} />
+                  <span className="digest-label">Hot Leads</span>
+                </div>
+                <strong className="digest-val">{stats.hotLeadsCount}</strong>
+              </div>
+              <div className="digest-item">
+                <div className="digest-label-group">
+                  <Clock size={14} />
+                  <span className="digest-label">Stalled Leads</span>
+                </div>
+                <strong className="digest-val">{stats.stalledLeadsCount}</strong>
+              </div>
+            </div>
+          </section>
+
+          {/* Calendar Integration card */}
+          <section className="panel calendar-panel" style={{ flexShrink: 0 }}>
+            <div className="panel-heading">
+              <CalendarCheck size={16} />
+              <h2>Calendar Link</h2>
+            </div>
+            {state.config?.bookingLink ? (
+              <div className="calendar-content">
+                <p className="calendar-desc">Active scheduling link used in follow-ups:</p>
+                <div className="calendar-link-wrapper">
+                  <a href={state.config.bookingLink} target="_blank" rel="noreferrer" className="calendar-link">
+                    {state.config.bookingLink}
+                  </a>
+                </div>
+              </div>
+            ) : (
+              <p className="empty-state">No booking link configured.</p>
+            )}
+          </section>
+
+          {/* Gemini AI Config card */}
+          <section className="panel gemini-panel" style={{ flexShrink: 0 }}>
+            <div className="panel-heading">
+              <Brain size={16} />
+              <h2>Gemini AI Config</h2>
+            </div>
+            <p style={{ fontSize: '0.72rem', color: '#94a3b8', margin: '2px 0 8px 0', lineHeight: 1.3 }}>
+              Configure your API key to enable dynamic LLM scoring and conversational replies.
+            </p>
+            <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+              <input
+                type={showApiKey ? "text" : "password"}
+                placeholder="Enter Gemini API Key"
+                aria-label="Gemini API Key"
+                value={geminiApiKey}
+                onChange={(event) => setGeminiApiKey(event.target.value)}
+                style={{ fontSize: '0.72rem', padding: '6px 8px', flex: 1 }}
+              />
+              <button
+                className="button secondary sm"
+                type="button"
+                style={{ padding: '2px 8px' }}
+                onClick={() => setShowApiKey(!showApiKey)}
+              >
+                {showApiKey ? "Hide" : "Show"}
+              </button>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.68rem', fontWeight: 700, color: state.config?.geminiApiKey ? '#4ade80' : '#f59e0b' }}>
+                Mode: {state.config?.geminiApiKey ? 'Live Gemini AI' : 'Rules Fallback'}
+              </span>
+              <button
+                className="button primary sm"
+                type="button"
+                onClick={saveGeminiKey}
+              >
+                Save
+              </button>
+            </div>
+          </section>
+
+          {/* Webhook Intake card */}
+          <section className="panel webhook-panel" style={{ flexShrink: 0 }}>
+            <div className="panel-heading">
+              <Link size={16} />
+              <h2>Webhook Intake</h2>
+            </div>
+            <p style={{ fontSize: '0.72rem', color: '#94a3b8', margin: '2px 0 8px 0', lineHeight: 1.3 }}>
+              Push inbound leads automatically from external CRMs or form webhooks.
+            </p>
+            <div style={{ 
+              background: 'rgba(0, 0, 0, 0.2)', 
+              border: '1px solid rgba(255, 255, 255, 0.05)', 
+              borderRadius: '6px', 
+              padding: '6px 8px', 
+              marginBottom: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px'
+            }}>
+              <code style={{ fontSize: '0.62rem', color: '#4ade80', wordBreak: 'break-all', fontFamily: 'monospace' }}>
+                {window.location.protocol}//{window.location.hostname}:8787/api/webhooks/lead
+              </code>
+              <button 
+                className="button secondary sm" 
+                type="button"
+                style={{ padding: '2px 6px', fontSize: '0.6rem', flexShrink: 0 }}
+                onClick={() => {
+                  navigator.clipboard.writeText(`${window.location.protocol}//${window.location.hostname}:8787/api/webhooks/lead`);
+                  alert('Webhook URL copied to clipboard!');
+                }}
+              >
+                Copy
+              </button>
+            </div>
+            <details style={{ fontSize: '0.68rem', color: '#64748b' }}>
+              <summary style={{ cursor: 'pointer', outline: 'none', userSelect: 'none', color: '#3b82f6' }}>Payload Schema</summary>
+              <pre style={{ 
+                background: '#020617', 
+                padding: '6px', 
+                borderRadius: '4px', 
+                marginTop: '4px', 
+                overflowX: 'auto',
+                fontSize: '0.58rem',
+                color: '#94a3b8',
+                border: '1px solid rgba(255, 255, 255, 0.02)',
+                fontFamily: 'monospace'
+              }}>
+{`{
+  "name": "Jane Doe",
+  "company": "Doe Corp",
+  "email": "jane@example.com",
+  "service": "roofing",
+  "budget": "5000",
+  "urgency": "ASAP",
+  "pain": "roof leaks",
+  "channel": "SMS"
+}`}
+              </pre>
+            </details>
           </section>
 
           {/* Lead Intake trigger form */}
@@ -349,13 +578,34 @@ export default function App() {
             </div>
             <div className="autopilot-card-compact">
               <div className="autopilot-header">
-                <strong>{cycleReport ? `Last run ${new Date(cycleReport.startedAt).toLocaleTimeString()}` : 'Autopilot Ready'}</strong>
+                <strong>Autopilot: {state.config?.autopilotEnabled ? 'ACTIVE (Auto-Send)' : 'PAUSED (Draft-Only)'}</strong>
                 <div className="autopilot-buttons">
-                  <button className="button primary sm" type="button" onClick={() => void runAgentCycle()}><Bot size={14} /> Run cycle</button>
-                  <button className="button secondary sm" type="button" onClick={() => void runWorker()}><Play size={14} /> Run worker</button>
+                  <button 
+                    className={`button sm ${state.config?.autopilotEnabled ? 'secondary' : 'primary'}`} 
+                    type="button" 
+                    onClick={toggleAutopilot}
+                  >
+                    {state.config?.autopilotEnabled ? 'Pause Autopilot' : 'Enable Autopilot'}
+                  </button>
                 </div>
               </div>
-              <p className="autopilot-summary">{cycleReport ? `Imported ${cycleReport.imported}, drafted ${cycleReport.createdDrafts}, approvals ${cycleReport.waitingApproval}, handoffs ${cycleReport.needsHuman}.` : 'One click checks connected inboxes, imports new leads, drafts due follow-ups, and summarizes human decisions.'}</p>
+              <p className="autopilot-summary">
+                {state.config?.autopilotEnabled 
+                  ? 'Agent autonomously triages inbound leads and sends due follow-up messages without manual approval.' 
+                  : 'Agent runs in draft-only mode. All outbound responses require owner approval before sending.'}
+              </p>
+              {cycleReport && (
+                <p className="autopilot-summary" style={{ marginTop: '4px', color: 'var(--accent-color)', fontWeight: 600 }}>
+                  Last run: Imported {cycleReport.imported}, drafted {cycleReport.createdDrafts}, approvals {cycleReport.waitingApproval}, handoffs {cycleReport.needsHuman}.
+                </p>
+              )}
+              <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>Demo controls:</span>
+                <div className="autopilot-buttons">
+                  <button className="button secondary sm" type="button" style={{ padding: '3px 8px', fontSize: '0.7rem' }} onClick={() => void runAgentCycle()}><Bot size={12} /> Run cycle</button>
+                  <button className="button secondary sm" type="button" style={{ padding: '3px 8px', fontSize: '0.7rem' }} onClick={() => void runWorker()}><Play size={12} /> Run worker</button>
+                </div>
+              </div>
             </div>
             <div className="decision-stream-header">
               <span>Agent Decision log</span>

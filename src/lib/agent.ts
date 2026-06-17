@@ -101,7 +101,7 @@ export function scoreLead(input: Pick<LeadInput, 'budget' | 'urgency' | 'pain'>)
   return { score: capped, temperature, reasons, nextAction };
 }
 
-export function buildFollowUpPlan(input: LeadInput): FollowUpPlan {
+export function buildFollowUpPlan(input: LeadInput, bookingLink?: string): FollowUpPlan {
   const name = input.name?.trim() || 'there';
   const company = input.company?.trim() || 'the business';
   const service = input.service?.trim() || 'your request';
@@ -127,7 +127,9 @@ export function buildFollowUpPlan(input: LeadInput): FollowUpPlan {
       {
         timing: '2 hours',
         goal: 'Offer booking without sounding desperate',
-        message: 'I can hold two options for you: today at 3:30 PM or tomorrow at 10:00 AM. Which works better?',
+        message: bookingLink
+          ? `I can hold two options for you: today at 3:30 PM or tomorrow at 10:00 AM. Alternatively, you can book a time directly here: ${bookingLink}. Which works better?`
+          : 'I can hold two options for you: today at 3:30 PM or tomorrow at 10:00 AM. Which works better?',
       },
       {
         timing: '24 hours',
@@ -143,8 +145,8 @@ export function buildFollowUpPlan(input: LeadInput): FollowUpPlan {
   };
 }
 
-export function buildAgentRun(input: LeadInput): AgentRun {
-  const plan = buildFollowUpPlan(input);
+export function buildAgentRun(input: LeadInput, bookingLink?: string): AgentRun {
+  const plan = buildFollowUpPlan(input, bookingLink);
   const leadName = input.name?.trim() || 'New lead';
   const company = input.company?.trim() || 'Unknown company';
   const service = input.service?.trim() || 'requested service';

@@ -6,7 +6,7 @@ const twilioNumber = process.env.TWILIO_PHONE_NUMBER;
 
 export const hasTwilioConfig = !!(accountSid && authToken && twilioNumber);
 
-let client: any = null;
+let client: ReturnType<typeof twilio> | null = null;
 if (hasTwilioConfig) {
   client = twilio(accountSid, authToken);
 }
@@ -25,8 +25,9 @@ export async function sendSms(to: string, body: string): Promise<{ success: bool
     });
     console.log(`[TWILIO SUCCESS] SMS sent to ${to}, SID: ${message.sid}`);
     return { success: true, sid: message.sid };
-  } catch (error: any) {
+  } catch (error) {
+    const err = error as Error;
     console.error(`[TWILIO ERROR] Failed to send SMS to ${to}:`, error);
-    return { success: false, error: error.message || String(error) };
+    return { success: false, error: err.message || String(error) };
   }
 }
