@@ -185,6 +185,7 @@ a:hover {
   height: 100%;
   overflow: hidden;
   border-right: 1px solid var(--border-color);
+  min-height: 0;
 }
 .workspace-column:last-child {
   border-right: none;
@@ -256,6 +257,7 @@ a:hover {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0;
 }
 .panel.fill-height {
   height: 100%;
@@ -426,6 +428,7 @@ textarea {
   flex-direction: column;
   gap: 8px;
   padding-right: 2px;
+  min-height: 0;
 }
 .decision-log-item {
   background: #18191e;
@@ -473,6 +476,7 @@ textarea {
   height: 100%;
   overflow: hidden;
   flex: 1;
+  min-height: 0;
 }
 .lead-summary-badge {
   background: #18191e;
@@ -622,6 +626,7 @@ textarea {
   gap: 4px;
   overflow: hidden;
   margin-bottom: 10px;
+  min-height: 0;
 }
 .chat-thread-section > span {
   font-size: 0.68rem;
@@ -640,6 +645,7 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: 0;
 }
 code {
   font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
