@@ -1,19 +1,27 @@
 :root {
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  color: #f3f4f6;
-  background: #030712;
+  color: #e3e3e7;
+  background: #090a0c;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 
-  /* Color Palette Variables: Green (Accent) and Blue (Primary) */
-  --primary-color: #3b82f6; /* Royal Blue */
+  /* Color Palette Variables: Antigravity IDE Theme */
+  --primary-color: #3b82f6; /* Accent Blue */
   --primary-dark: #2563eb; /* Darker Blue */
   --primary-rgb: 59, 130, 246;
 
-  --accent-color: #4ade80; /* Vibrant Light Green */
-  --accent-dark: #10b981; /* Emerald Green */
-  --accent-rgb: 74, 222, 128;
-  --accent-dark-rgb: 16, 185, 129;
+  --accent-color: #eab308; /* Antigravity Gold for highlights and bullets */
+  --accent-dark: #d97706;
+  --accent-rgb: 234, 179, 8;
+  --accent-dark-rgb: 217, 119, 6;
+
+  /* IDE Panels, Sidebars & Borders System */
+  --bg-darkest: #07080a;     /* Header & Sidebar */
+  --bg-main: #0c0d10;        /* Main Workspace background */
+  --bg-panel: #131419;       /* Panel / Card background */
+  --bg-panel-active: #202228; /* Selected item / Active item */
+  --border-color: #1e2026;   /* Default borders */
+  --border-color-light: #2c2f3a; /* Focused input border */
 }
 
 * { 
@@ -26,15 +34,16 @@ body {
   min-width: 320px; 
   height: 100vh;
   overflow: hidden;
-  background: radial-gradient(circle at 10% 20%, rgba(var(--primary-rgb), 0.1) 0%, transparent 40rem),
-              radial-gradient(circle at 90% 80%, rgba(var(--accent-dark-rgb), 0.08) 0%, transparent 40rem),
-              #030712; 
-  background-attachment: fixed;
+  background: var(--bg-main);
+  color: #e3e3e7;
 }
 
 a { 
-  color: inherit; 
+  color: #38bdf8; 
   text-decoration: none; 
+}
+a:hover {
+  text-decoration: underline;
 }
 
 /* Scrollbar Styles */
@@ -43,15 +52,14 @@ a {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.01);
-  border-radius: 3px;
+  background: var(--bg-darkest);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--border-color);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--border-color-light);
 }
 
 /* App Layout */
@@ -68,9 +76,8 @@ a {
   justify-content: space-between;
   align-items: center;
   padding: 12px 24px;
-  background: rgba(17, 24, 39, 0.8);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(12px);
+  background: var(--bg-darkest);
+  border-bottom: 1px solid var(--border-color);
   height: 64px;
   flex-shrink: 0;
   z-index: 10;
@@ -83,14 +90,12 @@ a {
 .header-brand h1 {
   margin: 0;
   font-size: 1.25rem;
-  font-weight: 950;
-  background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  font-weight: 800;
+  color: #ffffff;
   line-height: 1.1;
 }
 .header-brand .eyebrow {
-  color: var(--accent-color); 
+  color: var(--primary-color); 
   text-transform: uppercase; 
   letter-spacing: .2em; 
   font-weight: 800; 
@@ -169,20 +174,26 @@ a {
   flex: 1;
   height: calc(100vh - 64px);
   overflow: hidden;
-  padding: 12px;
-  gap: 12px;
+  padding: 0;
+  gap: 0;
+  background: var(--bg-main);
 }
 .workspace-column {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0;
   height: 100%;
   overflow: hidden;
+  border-right: 1px solid var(--border-color);
+}
+.workspace-column:last-child {
+  border-right: none;
 }
 .workspace-column.sidebar {
   width: 290px;
   flex-shrink: 0;
   overflow-y: auto;
+  background: var(--bg-darkest);
 }
 .workspace-column.cockpit {
   width: 360px;
@@ -206,22 +217,19 @@ a {
   cursor: pointer;
 }
 .button.primary { 
-  background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%); 
+  background: var(--primary-color); 
   color: #ffffff; 
-  box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.2);
 }
 .button.primary:hover:not(:disabled) {
-  filter: brightness(1.1);
-  transform: translateY(-1px);
+  background: var(--primary-dark);
 }
 .button.secondary { 
-  background: rgba(255, 255, 255, 0.04); 
-  color: #f3f4f6; 
-  border: 1px solid rgba(255, 255, 255, 0.06); 
+  background: #18191e; 
+  color: #e3e3e7; 
+  border: 1px solid var(--border-color); 
 }
 .button.secondary:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.07);
-  transform: translateY(-1px);
+  background: #202228;
 }
 .button.sm {
   padding: 5px 10px;
@@ -240,12 +248,11 @@ a {
 
 /* Glassmorphic Panel Cards */
 .panel { 
-  background: rgba(17, 24, 39, 0.45); 
-  border: 1px solid rgba(255, 255, 255, 0.05); 
-  border-radius: 16px; 
-  padding: 14px; 
-  backdrop-filter: blur(16px);
-  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  background: var(--bg-panel); 
+  border: 0;
+  border-bottom: 1px solid var(--border-color);
+  border-radius: 0; 
+  padding: 16px; 
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -269,7 +276,7 @@ a {
   letter-spacing: 0.08em;
 }
 .panel-heading svg {
-  color: var(--accent-color);
+  color: var(--primary-color);
 }
 
 /* Sidebar Elements (Column 1) */
@@ -287,8 +294,8 @@ a {
   flex: 1;
 }
 .inbox-summary {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: #18191e;
+  border: 1px solid var(--border-color);
   padding: 8px 10px;
   border-radius: 8px;
   font-size: 0.75rem;
@@ -305,16 +312,16 @@ a {
   font-weight: 600;
 }
 .gmail-summary {
-  background: rgba(14, 165, 233, 0.05);
-  border: 1px solid rgba(14, 165, 233, 0.15);
+  background: rgba(59, 130, 246, 0.05);
+  border: 1px solid rgba(59, 130, 246, 0.15);
   padding: 8px 10px;
   border-radius: 8px;
   font-size: 0.72rem;
   margin-bottom: 6px;
 }
 .gmail-summary.setup_required {
-  background: rgba(245, 158, 11, 0.05);
-  border-color: rgba(245, 158, 11, 0.15);
+  background: rgba(234, 179, 8, 0.05);
+  border-color: rgba(234, 179, 8, 0.15);
 }
 .gmail-summary strong {
   display: block;
@@ -350,10 +357,10 @@ a {
 }
 input, textarea, select { 
   width: 100%; 
-  border-radius: 8px; 
-  border: 1px solid rgba(255, 255, 255, 0.06); 
-  background: rgba(255, 255, 255, 0.02); 
-  color: #f9fafb; 
+  border-radius: 6px; 
+  border: 1px solid var(--border-color); 
+  background: var(--bg-darkest); 
+  color: #e3e3e7; 
   padding: 8px 10px; 
   font: inherit; 
   outline: none;
@@ -361,8 +368,7 @@ input, textarea, select {
 }
 input:focus, textarea:focus, select:focus {
   border-color: var(--primary-color);
-  background: rgba(255, 255, 255, 0.05);
-  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.15);
+  background: #111216;
 }
 textarea { 
   min-height: 60px; 
@@ -377,9 +383,9 @@ textarea {
 
 /* Cockpit Elements (Column 2) */
 .autopilot-card-compact {
-  background: rgba(var(--accent-dark-rgb), 0.03);
-  border: 1px solid rgba(var(--accent-dark-rgb), 0.12);
-  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.03);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  border-radius: 8px;
   padding: 10px;
   margin-bottom: 12px;
   flex-shrink: 0;
@@ -422,9 +428,9 @@ textarea {
   padding-right: 2px;
 }
 .decision-log-item {
-  background: rgba(255, 255, 255, 0.015);
-  border: 1px solid rgba(255, 255, 255, 0.03);
-  border-radius: 10px;
+  background: #18191e;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
   padding: 10px;
   font-size: 0.8rem;
 }
@@ -469,9 +475,9 @@ textarea {
   flex: 1;
 }
 .lead-summary-badge {
-  background: rgba(var(--primary-rgb), 0.05);
-  border: 1px solid rgba(var(--primary-rgb), 0.12);
-  border-radius: 10px;
+  background: #18191e;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
   padding: 10px 12px;
   margin-bottom: 10px;
   flex-shrink: 0;
@@ -528,9 +534,9 @@ textarea {
   height: 120px;
 }
 .reasoning-box-compact, .agent-timeline-compact {
-  background: rgba(255, 255, 255, 0.01);
-  border: 1px solid rgba(255, 255, 255, 0.03);
-  border-radius: 10px;
+  background: #090a0c;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
   padding: 8px 10px;
   height: 100%;
   display: flex;
@@ -627,13 +633,22 @@ textarea {
 .chat-history {
   flex: 1;
   overflow-y: auto;
-  background: rgba(0, 0, 0, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  border-radius: 10px;
+  background: var(--bg-darkest);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
   padding: 10px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+code {
+  font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
+  color: var(--accent-color) !important;
+  background: rgba(var(--accent-rgb), 0.08) !important;
+  border: 1px solid rgba(var(--accent-rgb), 0.15);
+  border-radius: 4px;
+  padding: 2px 5px;
+  font-size: 0.88em;
 }
 .chat-message {
   display: flex;
@@ -755,8 +770,8 @@ textarea {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: #18191e;
+  border: 1px solid var(--border-color);
   padding: 6px 10px;
   border-radius: 8px;
 }
@@ -791,8 +806,8 @@ textarea {
   line-height: 1.3;
 }
 .calendar-link-wrapper {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: #18191e;
+  border: 1px solid var(--border-color);
   padding: 6px 8px;
   border-radius: 8px;
   overflow: hidden;
