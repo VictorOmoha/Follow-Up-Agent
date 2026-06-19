@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Bot, Brain, CalendarCheck, CheckCircle2, CircleDollarSign, ClipboardCheck, Clock, Flame, Link, Mail, MessageSquareReply, PhoneCall, Play, RefreshCw, Send } from 'lucide-react';
+import { Bot, Brain, CalendarCheck, CheckCircle2, CircleDollarSign, ClipboardCheck, Clock, Flame, Link, Mail, MessageSquareReply, Moon, PhoneCall, Play, RefreshCw, Send, Sun } from 'lucide-react';
 import { type LeadInput, scoreLead } from './lib/agent';
 import './styles.css';
 
@@ -151,6 +151,16 @@ export default function App() {
   const [geminiApiKey, setGeminiApiKey] = useState('');
   const [bookingLink, setBookingLink] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
+
+  useEffect(() => {
+    if (theme === 'light') {
+      document.body.classList.add('light-theme');
+    } else {
+      document.body.classList.remove('light-theme');
+    }
+    localStorage.setItem('theme', theme);
+  }, [theme]);
 
   async function refresh() {
     try {
@@ -348,6 +358,15 @@ export default function App() {
         </div>
 
         <div className="header-status">
+          <button
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            className="button secondary sm"
+            type="button"
+            aria-label="Toggle light/dark mode"
+            style={{ padding: '6px', minWidth: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+          </button>
           <Bot size={16} />
           <span className="api-status">{loading ? 'Connecting' : 'API Online'}</span>
           <span className="next-move">Next: {nextMove}</span>
@@ -381,7 +400,7 @@ export default function App() {
             {gmailStart && (
               <div className={`gmail-summary ${gmailStart.status}`}>
                 <strong>{gmailStart.status === 'ready' ? 'Gmail OAuth ready' : 'Setup required'}</strong>
-                <p style={{ margin: '2px 0', fontSize: '0.7rem', color: '#94a3b8', lineHeight: 1.25 }}>{gmailStart.message}</p>
+                <p style={{ margin: '2px 0', fontSize: '0.7rem', color: 'var(--text-muted)', lineHeight: 1.25 }}>{gmailStart.message}</p>
                 <small style={{ display: 'block', fontSize: '0.65rem', color: '#64748b' }}>Scopes: {gmailStart.scopes.join(', ')}</small>
                 {gmailStart.authUrl ? <a href={gmailStart.authUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: '4px' }}>Open consent screen</a> : null}
               </div>
@@ -461,7 +480,7 @@ export default function App() {
               <Brain size={16} />
               <h2>Gemini AI Config</h2>
             </div>
-            <p style={{ fontSize: '0.72rem', color: '#94a3b8', margin: '2px 0 8px 0', lineHeight: 1.3 }}>
+            <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '2px 0 8px 0', lineHeight: 1.3 }}>
               Configure your API key to enable dynamic LLM scoring and conversational replies.
             </p>
             <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
@@ -502,12 +521,12 @@ export default function App() {
               <Link size={16} />
               <h2>Webhook Intake</h2>
             </div>
-            <p style={{ fontSize: '0.72rem', color: '#94a3b8', margin: '2px 0 8px 0', lineHeight: 1.3 }}>
+            <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '2px 0 8px 0', lineHeight: 1.3 }}>
               Push inbound leads automatically from external CRMs or form webhooks.
             </p>
             <div style={{ 
-              background: 'rgba(0, 0, 0, 0.2)', 
-              border: '1px solid rgba(255, 255, 255, 0.05)', 
+              background: 'var(--bg-darkest)', 
+              border: '1px solid var(--border-color)', 
               borderRadius: '6px', 
               padding: '6px 8px', 
               marginBottom: '8px',
@@ -615,8 +634,8 @@ export default function App() {
                   Last run: Imported {cycleReport.imported}, drafted {cycleReport.createdDrafts}, approvals {cycleReport.waitingApproval}, handoffs {cycleReport.needsHuman}.
                 </p>
               )}
-              <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>Demo controls:</span>
+              <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>Demo controls:</span>
                 <div className="autopilot-buttons">
                   <button className="button secondary sm" type="button" style={{ padding: '3px 8px', fontSize: '0.7rem' }} onClick={() => void runAgentCycle()}><Bot size={12} /> Run cycle</button>
                   <button className="button secondary sm" type="button" style={{ padding: '3px 8px', fontSize: '0.7rem' }} onClick={() => void runWorker()}><Play size={12} /> Run worker</button>
