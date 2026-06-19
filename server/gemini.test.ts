@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { analyzeAndScoreLead, generateFollowUpPlan, analyzeReply } from './gemini';
+import { analyzeAndScoreLead, generateFollowUpPlan, analyzeReply, extractLeadFromText } from './gemini';
 import { scoreLead, buildFollowUpPlan } from '../src/lib/agent';
 
 const mockLead = {
@@ -99,4 +99,88 @@ describe('gemini service fallbacks and integrations', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(result.score).toBe(expected.score);
   });
+
+  describe('extractLeadFromText', () => {
+    it('falls back to rules-based extraction when no API key is present', async () => {
+      const emailBody = 'Name: Ada Okafor\nCompany: Ada Legal\nService: Immigration\nBudget: 5000\nUrgency: ASAP\nPain: slow lawyer';
+      const result = await extractLeadFromText(emailBody, 'New Lead Inquiry', 'ada@example.com');
+      
+      expect(result.name).toBe('Ada Okafor');
+      expect(result.company).toBe('Ada Legal');
+      expect(result.service).toBe('Immigration');
+      expect(result.budget).toBe('5000');
+      expect(result.urgency).toBe('ASAP');
+      expect(result.pain).toBe('slow lawyer');
+      expect(result.contact).toBe('ada@example.com');
+      expect(result.channel).toBe('Email');
+    });
+
+    it('calls live API when API key is provided and parses lead successfully', async () => {
+      const mockFetch = vi.fn().mockImplementation(() =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              candidates: [
+                {
+                  content: {
+                    parts: [
+                      {
+                        text: JSON.stringify({
+                          name: 'Sarah Smith',
+                          company: 'Smith LLC',
+                          service: 'Contract Review',
+                          budget: '1500',
+                          urgency: 'Next week',
+                          pain: 'Need help reviewing a vendor agreement.',
+                          channel: 'SMS',
+                          contact: '+123456789',
+                        }),
+                      },
+                    ],
+                  },
+                },
+              ],
+            }),
+        })
+      );
+      vi.stubGlobal('fetch', mockFetch);
+
+      const result = await extractLeadFromText(
+        'Vendor agreement help needed. Sarah Smith from Smith LLC. Call me at +123456789. Budget 1500, next week timeline.',
+        'Help',
+        'sarah@smith.com',
+        'test-key'
+      );
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(result.name).toBe('Sarah Smith');
+      expect(result.company).toBe('Smith LLC');
+      expect(result.service).toBe('Contract Review');
+      expect(result.budget).toBe('1500');
+      expect(result.urgency).toBe('Next week');
+      expect(result.pain).toBe('Need help reviewing a vendor agreement.');
+      expect(result.channel).toBe('SMS');
+      expect(result.contact).toBe('+123456789');
+    });
+
+    it('falls back to rules-based extraction if Gemini fetch fails', async () => {
+      const mockFetch = vi.fn().mockImplementation(() =>
+        Promise.resolve({
+          ok: false,
+          status: 500,
+          text: () => Promise.resolve('Error'),
+        })
+      );
+      vi.stubGlobal('fetch', mockFetch);
+
+      const emailBody = 'Name: Ada Okafor\nCompany: Ada Legal\nService: Immigration\nBudget: 5000\nUrgency: ASAP\nPain: slow lawyer';
+      const result = await extractLeadFromText(emailBody, 'Inquiry', 'ada@example.com', 'test-key');
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(result.name).toBe('Ada Okafor');
+      expect(result.budget).toBe('5000');
+    });
+  });
 });
+

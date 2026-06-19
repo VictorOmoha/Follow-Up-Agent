@@ -279,3 +279,109 @@ Return a JSON object matching this schema:
     };
   }
 }
+
+export interface LLMExtractedLead {
+  name: string;
+  company: string;
+  service: string;
+  budget: string;
+  urgency: string;
+  pain: string;
+  channel: 'Email' | 'SMS' | 'Call';
+  contact: string;
+}
+
+function fieldFromEmail(body: string, field: string, fallback = '') {
+  const match = body.match(new RegExp(`${field}:\\s*(.+)`, 'i'));
+  return match?.[1]?.trim() || fallback;
+}
+
+function fallbackExtractLead(text: string, subject?: string, fromEmail?: string): LLMExtractedLead {
+  const name = fieldFromEmail(text, 'Name', fromEmail?.split('@')[0] || 'Unknown Lead');
+  const company = fieldFromEmail(text, 'Company', fromEmail?.split('@')[0] || 'Self-Employed');
+  const service = fieldFromEmail(text, 'Service', subject || 'General Inquiry');
+  const budget = fieldFromEmail(text, 'Budget', 'unknown');
+  const urgency = fieldFromEmail(text, 'Urgency', 'unknown');
+  const pain = fieldFromEmail(text, 'Pain', subject || 'No pain described');
+  
+  return {
+    name,
+    company,
+    service,
+    budget,
+    urgency,
+    pain,
+    channel: 'Email',
+    contact: fromEmail || 'none',
+  };
+}
+
+/**
+ * Extract structured lead data from any unstructured text, email, booking form note, CRM body, or ad payload.
+ */
+export async function extractLeadFromText(
+  text: string,
+  subject?: string,
+  fromEmail?: string,
+  configKey?: string
+): Promise<LLMExtractedLead> {
+  const apiKey = getApiKey(configKey);
+  if (!apiKey) {
+    console.log('[GEMINI SERVICE] No API key. Falling back to rules-based lead extraction.');
+    return fallbackExtractLead(text, subject, fromEmail);
+  }
+
+  try {
+    const prompt = `
+You are a lead extraction assistant. Extract structured details from the following unstructured text, email, contact form, CRM payload, booking form note, or ad lead form.
+
+Subject/Metadata info: ${subject || 'none'}
+Contact/Sender info: ${fromEmail || 'unknown'}
+
+Text/Payload Content:
+"""
+${text}
+"""
+
+Analyze the text carefully. Map the fields as follows:
+1. name: Extract the lead's full name. If not found, try to infer from the email/text or use 'Unknown Lead'.
+2. company: Extract the lead's company or organization. If not found, use 'Self-Employed' or 'Unknown'.
+3. service: Identify the service requested (e.g. Legal, web development, immigration).
+4. budget: Extract any budget numbers or estimates. If not found, use 'unknown'.
+5. urgency: Extract the timeline or urgency mentioned (e.g., ASAP, next month, next week). If not found, use 'unknown'.
+6. pain: Extract the main pain point, problem, or description of what they need help with.
+7. channel: "Email" or "SMS" or "Call". Default to "Email" if not specified.
+8. contact: Extract the email address or phone number. Default to the provided contact/sender info if not explicitly overridden.
+
+Return a JSON object matching this schema:
+{
+  "name": string,
+  "company": string,
+  "service": string,
+  "budget": string,
+  "urgency": string,
+  "pain": string,
+  "channel": "Email" | "SMS" | "Call",
+  "contact": string
+}
+    `;
+
+    const systemInstruction = 'You are a professional lead extraction agent. Extract structured details from unstructured contact forms, emails, booking notes, and CRM inputs.';
+    const result = await callGeminiJSON<LLMExtractedLead>(prompt, apiKey, systemInstruction);
+
+    return {
+      name: result.name || 'Unknown Lead',
+      company: result.company || 'Self-Employed',
+      service: result.service || 'General Inquiry',
+      budget: String(result.budget || 'unknown'),
+      urgency: result.urgency || 'unknown',
+      pain: result.pain || 'No pain described',
+      channel: result.channel || 'Email',
+      contact: result.contact || fromEmail || 'none',
+    };
+  } catch (error) {
+    console.error('[GEMINI SERVICE] Lead extraction failed. Falling back to rules-based extraction:', error);
+    return fallbackExtractLead(text, subject, fromEmail);
+  }
+}
+

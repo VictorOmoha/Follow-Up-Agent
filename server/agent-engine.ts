@@ -1,6 +1,6 @@
 import { type LeadInput } from '../src/lib/agent';
 import { sendSms } from './twilio';
-import { analyzeAndScoreLead, generateFollowUpPlan, analyzeReply } from './gemini';
+import { analyzeAndScoreLead, generateFollowUpPlan, analyzeReply, extractLeadFromText } from './gemini';
 
 export type LeadStatus = 'new' | 'waiting_approval' | 'contacted' | 'needs_human' | 'nurture' | 'closed';
 export type MessageStatus = 'draft' | 'sent' | 'received';
@@ -147,23 +147,6 @@ function demoEmailMessages(inboxId: string, timestamp: string): EmailMessageReco
   ];
 }
 
-function fieldFromEmail(body: string, field: string, fallback = '') {
-  const match = body.match(new RegExp(`${field}:\\s*(.+)`, 'i'));
-  return match?.[1]?.trim() || fallback;
-}
-
-function emailToLeadInput(email: EmailMessageRecord): LeadInput & { contact?: string } {
-  return {
-    name: fieldFromEmail(email.body, 'Name', email.from.split('@')[0]),
-    company: fieldFromEmail(email.body, 'Company', email.from.split('@')[0]),
-    service: fieldFromEmail(email.body, 'Service', email.subject),
-    budget: fieldFromEmail(email.body, 'Budget', 'unknown'),
-    urgency: fieldFromEmail(email.body, 'Urgency', 'unknown'),
-    pain: fieldFromEmail(email.body, 'Pain', email.subject),
-    channel: 'Email',
-    contact: email.from,
-  };
-}
 
 export function createAgentEngine(options: EngineOptions = {}) {
   let state = structuredClone(normalizeState(options.initialState ?? emptyState()));
@@ -555,8 +538,9 @@ export function createAgentEngine(options: EngineOptions = {}) {
         body: bodyText,
         receivedAt: new Date().toISOString(),
       };
-
-      const run = await createLead(emailToLeadInput(emailRecord));
+      const apiKey = state.config?.geminiApiKey;
+      const leadInput = await extractLeadFromText(emailRecord.body, emailRecord.subject, emailRecord.from, apiKey);
+      const run = await createLead(leadInput);
       emailRecord.importedAt = timestamp;
       emailRecord.leadId = run.lead.id;
       
@@ -599,10 +583,12 @@ export function createAgentEngine(options: EngineOptions = {}) {
       return await syncRealGmailInbox(inbox, timestamp);
     }
 
+    const apiKey = state.config?.geminiApiKey;
     let imported = 0;
     const emails = state.emailMessages.filter((email) => email.inboxId === inboxId && !email.importedAt);
     for (const email of emails) {
-      const run = await createLead(emailToLeadInput(email));
+      const leadInput = await extractLeadFromText(email.body, email.subject, email.from, apiKey);
+      const run = await createLead(leadInput);
       email.importedAt = timestamp;
       email.leadId = run.lead.id;
       addTimeline(run.lead.id, 'Email lead imported', `${email.subject} from ${email.from}`);

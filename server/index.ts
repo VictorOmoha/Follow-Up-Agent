@@ -5,6 +5,7 @@ import { createAgentEngine, type AgentState } from './agent-engine';
 import { buildGmailOAuthStartFromEnv } from './gmail-oauth';
 import { loadStateFromFirestore, saveStateToFirestore } from './db';
 import { toPublicAgentState, toPublicInbox } from './public-state';
+import { extractLeadFromText } from './gemini';
 
 // Load .env file programmatically (built-in Node 20.12+)
 if (typeof process.loadEnvFile === 'function') {
@@ -366,25 +367,49 @@ async function start() {
           email?: string;
           phone?: string;
         }
-        const body = (await readJson(request)) as WebhookPayload;
 
-        // Robust mapping of incoming JSON body to standard LeadInput
-        const name = body.name || body.fullName || [body.firstName, body.lastName].filter(Boolean).join(' ') || 'Unknown Webhook Lead';
-        const company = body.company || body.org || body.organization || 'Self-Employed';
-        const service = body.service || body.requestedService || body.interest || 'General Inquiry';
-        const budget = String(body.budget || body.budgetAmount || body.value || 'unknown');
-        const urgency = body.urgency || body.timeframe || body.timeline || 'unknown';
-        const pain = body.pain || body.description || body.message || body.notes || 'No pain described';
+        const rawBody = await readJson(request);
+        const bodyText = typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody, null, 2);
+
+        const stateBefore = engine.getState();
+        const apiKey = stateBefore.config?.geminiApiKey;
+
+        // Use AI lead extraction with robust rules fallback inside extractLeadFromText
+        const leadInput = await extractLeadFromText(bodyText, 'CRM Webhook Intake', undefined, apiKey);
         
-        let channel: 'SMS' | 'Email' | 'Call' = 'Email';
-        const rawChannel = String(body.channel || body.preferredChannel || '').toUpperCase();
-        if (rawChannel === 'SMS') channel = 'SMS';
-        else if (rawChannel === 'CALL') channel = 'Call';
-        else if (rawChannel === 'EMAIL') channel = 'Email';
+        // If we ran in fallback mode (or if AI failed/returned default values), let's ensure we try to map common CRM keys from JSON
+        if (typeof rawBody === 'object' && rawBody !== null) {
+          const body = rawBody as WebhookPayload;
+          if (leadInput.name === 'Unknown Lead') {
+            leadInput.name = body.name || body.fullName || [body.firstName, body.lastName].filter(Boolean).join(' ') || leadInput.name;
+          }
+          if (leadInput.company === 'Self-Employed' || leadInput.company === 'Unknown') {
+            leadInput.company = body.company || body.org || body.organization || leadInput.company;
+          }
+          if (leadInput.service === 'General Inquiry' || leadInput.service === 'CRM Webhook Intake') {
+            leadInput.service = body.service || body.requestedService || body.interest || leadInput.service;
+          }
+          if (leadInput.budget === 'unknown') {
+            leadInput.budget = String(body.budget || body.budgetAmount || body.value || leadInput.budget);
+          }
+          if (leadInput.urgency === 'unknown') {
+            leadInput.urgency = body.urgency || body.timeframe || body.timeline || leadInput.urgency;
+          }
+          if (leadInput.pain === 'No pain described' || leadInput.pain === 'CRM Webhook Intake') {
+            leadInput.pain = body.pain || body.description || body.message || body.notes || leadInput.pain;
+          }
+          if (leadInput.contact === 'none') {
+            leadInput.contact = body.contact || body.email || body.phone || leadInput.contact;
+          }
+          
+          if (leadInput.channel === 'Email') {
+            const rawChannel = String(body.channel || body.preferredChannel || '').toUpperCase();
+            if (rawChannel === 'SMS') leadInput.channel = 'SMS';
+            else if (rawChannel === 'CALL') leadInput.channel = 'Call';
+            else if (rawChannel === 'EMAIL') leadInput.channel = 'Email';
+          }
+        }
 
-        const contact = body.contact || body.email || body.phone || 'none';
-
-        const leadInput = { name, company, service, budget, urgency, pain, channel, contact };
         const run = await engine.createLead(leadInput);
 
         const state = engine.getState();
@@ -394,7 +419,7 @@ async function start() {
             id: `event_webhook_${Date.now()}`,
             leadId: lead.id,
             label: 'CRM Webhook intake',
-            detail: `Lead push from external CRM/Webform mapped successfully.`,
+            detail: `Lead push ingested. Mapped using ${apiKey ? 'Gemini GenAI Extraction' : 'CRM Rule Mapper'}.`,
             createdAt: new Date().toISOString(),
           });
           engine.reset(state);
