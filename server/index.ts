@@ -6,6 +6,8 @@ import { buildGmailOAuthStartFromEnv } from './gmail-oauth';
 import { loadStateFromFirestore, saveStateToFirestore } from './db';
 import { toPublicAgentState, toPublicInbox } from './public-state';
 import { extractLeadFromText } from './gemini';
+import { checkAuth, checkWebhookAuth, isAuthEnabled } from './auth';
+import { createRateLimiter } from './rate-limiter';
 
 // Load .env file programmatically (built-in Node 20.12+)
 if (typeof process.loadEnvFile === 'function') {
@@ -18,6 +20,15 @@ if (typeof process.loadEnvFile === 'function') {
 
 const PORT = Number(process.env.AGENT_API_PORT || 8787);
 const STATE_PATH = resolve(process.cwd(), 'data', 'agent-state.json');
+
+const webhookLimiter = createRateLimiter({ windowMs: 60_000, max: 30 });
+const apiLimiter = createRateLimiter({ windowMs: 60_000, max: 100 });
+
+function getClientIp(request: IncomingMessage): string {
+  const forwarded = request.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string') return forwarded.split(',')[0].trim();
+  return request.socket.remoteAddress || 'unknown';
+}
 
 function readState(): AgentState | undefined {
   if (!existsSync(STATE_PATH)) return undefined;
@@ -97,6 +108,40 @@ async function start() {
     }
 
     const url = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`);
+
+    // Auth check (skip for webhook endpoint — it has its own auth)
+    const isWebhook = url.pathname === '/api/webhooks/lead';
+    if (!isWebhook) {
+      const authResult = checkAuth({ headers: request.headers as Record<string, string | string[] | undefined>, url: request.url || '' });
+      if (!authResult.ok) {
+        sendJson(response, authResult.status || 401, { error: authResult.error });
+        return;
+      }
+      // Rate limit general API
+      const ip = getClientIp(request);
+      const rateResult = apiLimiter.check(ip);
+      if (!rateResult.ok) {
+        response.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': String(Math.ceil(rateResult.retryAfterMs / 1000)) });
+        response.end(JSON.stringify({ error: 'Rate limit exceeded. Try again later.' }));
+        return;
+      }
+    }
+
+    // Webhook-specific auth + rate limiting
+    if (isWebhook) {
+      const webhookAuthResult = checkWebhookAuth({ headers: request.headers as Record<string, string | string[] | undefined>, url: request.url || '' });
+      if (!webhookAuthResult.ok) {
+        sendJson(response, webhookAuthResult.status || 401, { error: webhookAuthResult.error });
+        return;
+      }
+      const ip = getClientIp(request);
+      const rateResult = webhookLimiter.check(ip);
+      if (!rateResult.ok) {
+        response.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': String(Math.ceil(rateResult.retryAfterMs / 1000)) });
+        response.end(JSON.stringify({ error: 'Webhook rate limit exceeded. Try again later.' }));
+        return;
+      }
+    }
 
     try {
       if (request.method === 'GET' && url.pathname === '/api/state') {

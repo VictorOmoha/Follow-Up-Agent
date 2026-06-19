@@ -252,7 +252,7 @@ describe('real follow-up agent engine', () => {
     await engine.createLead({ ...leadInput, name: 'Call Lead', channel: 'Call', contact: '+155****0000' });
     const state = engine.getState();
 
-    expect(state.timeline).toContainEqual(expect.objectContaining({ label: 'Email sent (Autopilot)' }));
+    expect(state.timeline).toContainEqual(expect.objectContaining({ label: expect.stringMatching(/Email sent.*Autopilot/) }));
     expect(state.timeline).toContainEqual(expect.objectContaining({ label: 'Call task queued' }));
   });
 });

@@ -1,5 +1,8 @@
 import { type LeadInput } from '../src/lib/agent';
 import { sendSms } from './twilio';
+import { sendEmail } from './email';
+import { makeCall } from './voice';
+import { AsyncLock } from './lock';
 import { analyzeAndScoreLead, generateFollowUpPlan, analyzeReply, extractLeadFromText } from './gemini';
 
 export type LeadStatus = 'new' | 'waiting_approval' | 'contacted' | 'needs_human' | 'nurture' | 'closed';
@@ -37,6 +40,7 @@ export type EmailMessageRecord = {
 export type LeadRecord = LeadInput & {
   id: string;
   contact?: string;
+  tenantId?: string;
   status: LeadStatus;
   createdAt: string;
   updatedAt: string;
@@ -100,6 +104,7 @@ export type AgentState = {
 type EngineOptions = {
   now?: () => Date;
   initialState?: AgentState;
+  tenantId?: string;
   onChange?: (state: AgentState) => void;
 };
 
@@ -161,6 +166,8 @@ function demoEmailMessages(inboxId: string, timestamp: string): EmailMessageReco
 export function createAgentEngine(options: EngineOptions = {}) {
   let state = structuredClone(normalizeState(options.initialState ?? emptyState()));
   const now = options.now ?? (() => new Date());
+  const tenantId = options.tenantId || 'default';
+  const lock = new AsyncLock();
 
   if (!state.config) {
     state.config = defaultConfig();
@@ -197,29 +204,58 @@ export function createAgentEngine(options: EngineOptions = {}) {
     }
 
     if (lead.channel === 'Email') {
-      addTimeline(
-        lead.id,
-        `Email ${mode === 'autopilot' ? 'sent' : 'prepared'} (${modeLabel})`,
-        `To: ${lead.contact || 'unknown email'} · ${body}`
-      );
+      const contactEmail = lead.contact || '';
+      const inbox = state.inboxes.find((i) => i.status === 'connected');
+      const gmailToken = inbox?.credentials?.accessToken;
+      const result = await sendEmail(contactEmail, `Follow-up from Omoha Solutions: ${lead.service || 'your inquiry'}`, body, gmailToken);
+      if (result.success) {
+        addTimeline(
+          lead.id,
+          `Email sent (${modeLabel}) via ${result.provider}`,
+          `To: ${contactEmail} · ${body}`
+        );
+      } else {
+        addTimeline(
+          lead.id,
+          `Email failed (${modeLabel})`,
+          `Provider: ${result.provider} · Error: ${result.error} · To: ${contactEmail}`
+        );
+      }
       return;
     }
 
     if (lead.channel === 'Call') {
-      addTimeline(
-        lead.id,
-        'Call task queued',
-        `Call ${lead.contact || lead.name || 'the lead'} and use this opener: ${body}`
-      );
+      const contactPhone = lead.contact || '';
+      const result = await makeCall(contactPhone, body);
+      if (result.success) {
+        addTimeline(
+          lead.id,
+          result.callSid === 'mock_call_dry_run' ? 'Call task queued' : `Call placed (${modeLabel})`,
+          result.callSid === 'mock_call_dry_run'
+            ? `Call ${contactPhone || lead.name || 'the lead'} and use this opener: ${body}`
+            : `SID: ${result.callSid} · To: ${contactPhone}`
+        );
+      } else {
+        addTimeline(
+          lead.id,
+          `Call failed (${modeLabel})`,
+          `Error: ${result.error} · To: ${contactPhone}`
+        );
+      }
     }
   }
 
   async function createLead(input: LeadInput & { contact?: string }) {
+    return lock.run(() => createLeadInner(input));
+  }
+
+  async function createLeadInner(input: LeadInput & { contact?: string }) {
     const timestamp = now().toISOString();
     const isAutopilot = !!state.config?.autopilotEnabled;
     const lead: LeadRecord = {
       ...input,
       id: makeId('lead'),
+      tenantId,
       status: isAutopilot ? 'contacted' : 'waiting_approval',
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -292,6 +328,10 @@ export function createAgentEngine(options: EngineOptions = {}) {
   }
 
   async function approveMessage(messageId: string) {
+    return lock.run(() => approveMessageInner(messageId));
+  }
+
+  async function approveMessageInner(messageId: string) {
     const timestamp = now().toISOString();
     const message = state.messages.find((item) => item.id === messageId);
     if (!message) throw new Error(`Message not found: ${messageId}`);
@@ -334,6 +374,10 @@ export function createAgentEngine(options: EngineOptions = {}) {
   }
 
   async function runDueTasks({ force = false }: { force?: boolean } = {}) {
+    return lock.run(() => runDueTasksInner({ force }));
+  }
+
+  async function runDueTasksInner({ force = false }: { force?: boolean } = {}) {
     const timestamp = now().toISOString();
     let createdDrafts = 0;
     const isAutopilot = !!state.config?.autopilotEnabled;
