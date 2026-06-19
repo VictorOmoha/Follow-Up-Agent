@@ -229,4 +229,30 @@ describe('real follow-up agent engine', () => {
     expect(state.tasks.filter((t) => t.type === 'follow_up' && t.status === 'scheduled')).toHaveLength(1);
     expect(state.timeline).toContainEqual(expect.objectContaining({ label: 'Agent sent scheduled follow-up autonomously' }));
   });
+
+  it('records delivery timelines for email and call channels', async () => {
+    const engine = createAgentEngine({
+      now: () => new Date('2026-05-17T20:00:00.000Z'),
+      initialState: {
+        leads: [],
+        messages: [],
+        tasks: [],
+        timeline: [],
+        decisions: [],
+        inboxes: [],
+        emailMessages: [],
+        config: {
+          bookingLink: 'https://calendar.google.com/calendar/appointments/schedules/demo',
+          autopilotEnabled: true,
+        },
+      },
+    });
+
+    await engine.createLead({ ...leadInput, channel: 'Email', contact: 'ada@example.com' });
+    await engine.createLead({ ...leadInput, name: 'Call Lead', channel: 'Call', contact: '+155****0000' });
+    const state = engine.getState();
+
+    expect(state.timeline).toContainEqual(expect.objectContaining({ label: 'Email sent (Autopilot)' }));
+    expect(state.timeline).toContainEqual(expect.objectContaining({ label: 'Call task queued' }));
+  });
 });

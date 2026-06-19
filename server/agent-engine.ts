@@ -103,9 +103,19 @@ type EngineOptions = {
   onChange?: (state: AgentState) => void;
 };
 
-const emptyState = (): AgentState => ({ leads: [], messages: [], tasks: [], timeline: [], decisions: [], inboxes: [], emailMessages: [] });
+const defaultConfig = () => ({
+  bookingLink: process.env.OWNER_BOOKING_LINK || process.env.BOOKING_LINK || 'https://calendar.google.com/calendar/appointments/schedules/demo',
+  autopilotEnabled: false,
+});
+
+const emptyState = (): AgentState => ({ leads: [], messages: [], tasks: [], timeline: [], decisions: [], inboxes: [], emailMessages: [], config: defaultConfig() });
 
 function normalizeState(state: Partial<AgentState>): AgentState {
+  const config = {
+    ...defaultConfig(),
+    ...(state.config ?? {}),
+  };
+
   return {
     leads: state.leads ?? [],
     messages: state.messages ?? [],
@@ -114,7 +124,7 @@ function normalizeState(state: Partial<AgentState>): AgentState {
     decisions: state.decisions ?? [],
     inboxes: state.inboxes ?? [],
     emailMessages: state.emailMessages ?? [],
-    config: state.config,
+    config,
   };
 }
 
@@ -153,17 +163,7 @@ export function createAgentEngine(options: EngineOptions = {}) {
   const now = options.now ?? (() => new Date());
 
   if (!state.config) {
-    state.config = {
-      bookingLink: process.env.OWNER_BOOKING_LINK || process.env.BOOKING_LINK || 'https://calendar.google.com/calendar/appointments/schedules/demo',
-      autopilotEnabled: false,
-    };
-  } else {
-    if (!state.config.bookingLink) {
-      state.config.bookingLink = process.env.OWNER_BOOKING_LINK || process.env.BOOKING_LINK || 'https://calendar.google.com/calendar/appointments/schedules/demo';
-    }
-    if (state.config.autopilotEnabled === undefined) {
-      state.config.autopilotEnabled = false;
-    }
+    state.config = defaultConfig();
   }
 
   function commit() {
@@ -180,6 +180,38 @@ export function createAgentEngine(options: EngineOptions = {}) {
 
   function addDecision(input: Omit<AgentDecisionRecord, 'id' | 'createdAt'>) {
     state.decisions.unshift({ ...input, id: makeId('decision'), createdAt: now().toISOString() });
+  }
+
+  async function deliverOutboundMessage(lead: LeadRecord, body: string, mode: 'owner-approved' | 'autopilot' | 'reply' = 'owner-approved') {
+    const modeLabel = mode === 'autopilot' ? 'Autopilot' : mode === 'reply' ? 'Reply' : 'Owner approval';
+
+    if (lead.channel === 'SMS') {
+      const contactPhone = lead.contact || '+155****0000';
+      const twilioResult = await sendSms(contactPhone, body);
+      if (!twilioResult.success) {
+        addTimeline(lead.id, `Twilio SMS failed to send (${modeLabel})`, `Error: ${twilioResult.error}`);
+      } else {
+        addTimeline(lead.id, `Twilio SMS sent successfully (${modeLabel})`, `SID: ${twilioResult.sid}`);
+      }
+      return;
+    }
+
+    if (lead.channel === 'Email') {
+      addTimeline(
+        lead.id,
+        `Email ${mode === 'autopilot' ? 'sent' : 'prepared'} (${modeLabel})`,
+        `To: ${lead.contact || 'unknown email'} · ${body}`
+      );
+      return;
+    }
+
+    if (lead.channel === 'Call') {
+      addTimeline(
+        lead.id,
+        'Call task queued',
+        `Call ${lead.contact || lead.name || 'the lead'} and use this opener: ${body}`
+      );
+    }
   }
 
   async function createLead(input: LeadInput & { contact?: string }) {
@@ -251,20 +283,7 @@ export function createAgentEngine(options: EngineOptions = {}) {
     addTimeline(lead.id, 'Agent checked context', `Budget ${lead.budget || 'unknown'}, urgency ${lead.urgency || 'unknown'}, pain: ${lead.pain || 'not captured'}.`);
     if (isAutopilot) {
       addTimeline(lead.id, 'Agent sent first response autonomously', message.body);
-      if (lead.channel === 'SMS') {
-        const contactPhone = lead.contact || '+15550000000';
-        sendSms(contactPhone, message.body).then((twilioResult) => {
-          const freshLead = state.leads.find((l) => l.id === lead.id);
-          if (freshLead) {
-            if (!twilioResult.success) {
-              addTimeline(lead.id, 'Twilio SMS failed to send (Autopilot)', `Error: ${twilioResult.error}`);
-            } else {
-              addTimeline(lead.id, 'Twilio SMS sent successfully (Autopilot)', `SID: ${twilioResult.sid}`);
-            }
-            commit();
-          }
-        });
-      }
+      await deliverOutboundMessage(lead, message.body, 'autopilot');
     } else {
       addTimeline(lead.id, 'Agent drafted first response', message.body);
     }
@@ -299,15 +318,7 @@ export function createAgentEngine(options: EngineOptions = {}) {
     });
     addTimeline(lead.id, 'Owner approved and message sent', message.body);
 
-    if (lead.channel === 'SMS') {
-      const contactPhone = lead.contact || '+15550000000';
-      const twilioResult = await sendSms(contactPhone, message.body);
-      if (!twilioResult.success) {
-        addTimeline(lead.id, 'Twilio SMS failed to send', `Error: ${twilioResult.error}`);
-      } else {
-        addTimeline(lead.id, 'Twilio SMS sent successfully', `SID: ${twilioResult.sid}`);
-      }
-    }
+    await deliverOutboundMessage(lead, message.body, 'owner-approved');
 
     addTimeline(lead.id, 'Agent scheduled next follow-up', 'Next follow-up task is due in 2 hours if the lead does not reply.');
     addDecision({
@@ -358,20 +369,7 @@ export function createAgentEngine(options: EngineOptions = {}) {
         });
         lead.status = 'contacted';
         
-        if (lead.channel === 'SMS') {
-          const contactPhone = lead.contact || '+15550000000';
-          sendSms(contactPhone, message.body).then((twilioResult) => {
-            const freshLead = state.leads.find((l) => l.id === lead.id);
-            if (freshLead) {
-              if (!twilioResult.success) {
-                addTimeline(lead.id, 'Twilio SMS failed to send (Autopilot)', `Error: ${twilioResult.error}`);
-              } else {
-                addTimeline(lead.id, 'Twilio SMS sent successfully (Autopilot)', `SID: ${twilioResult.sid}`);
-              }
-              commit();
-            }
-          });
-        }
+        await deliverOutboundMessage(lead, message.body, 'autopilot');
       } else {
         state.tasks.unshift({
           id: makeId('task'),
@@ -680,17 +678,7 @@ export function createAgentEngine(options: EngineOptions = {}) {
 
       if (isAutopilot) {
         addTimeline(leadId, 'Agent sent reply autonomously', draftMessage.body);
-        if (lead.channel === 'SMS') {
-          const contactPhone = lead.contact || '+15550000000';
-          sendSms(contactPhone, draftMessage.body).then((twilioResult) => {
-            if (!twilioResult.success) {
-              addTimeline(leadId, 'Twilio SMS failed to send (Autopilot)', `Error: ${twilioResult.error}`);
-            } else {
-              addTimeline(leadId, 'Twilio SMS sent successfully (Autopilot)', `SID: ${twilioResult.sid}`);
-            }
-            commit();
-          });
-        }
+        await deliverOutboundMessage(lead, draftMessage.body, 'reply');
       } else {
         state.tasks.unshift({
           id: makeId('task'),

@@ -3,7 +3,7 @@ import { Bot, Brain, CalendarCheck, CheckCircle2, CircleDollarSign, ClipboardChe
 import { type LeadInput, scoreLead } from './lib/agent';
 import './styles.css';
 
-const API_BASE = 'http://127.0.0.1:8787/api';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || `${window.location.protocol}//${window.location.hostname === 'localhost' ? '127.0.0.1' : window.location.hostname}:8787/api`;
 
 type LeadRecord = LeadInput & {
   id: string;
@@ -149,6 +149,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [geminiApiKey, setGeminiApiKey] = useState('');
+  const [bookingLink, setBookingLink] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
 
   async function refresh() {
@@ -156,6 +157,7 @@ export default function App() {
       setError('');
       const nextState = await api<AgentState>('/state');
       setState({ ...emptyState, ...nextState, decisions: nextState.decisions ?? [] });
+      setBookingLink((current) => current || nextState.config?.bookingLink || '');
     } catch {
       setError('API offline. Start it with npm run dev.');
     } finally {
@@ -295,6 +297,19 @@ export default function App() {
     }
   }
 
+  async function saveBookingLink() {
+    try {
+      const nextState = await api<AgentState>('/config', {
+        method: 'POST',
+        body: JSON.stringify({ bookingLink: bookingLink.trim() }),
+      });
+      setState({ ...emptyState, ...nextState, decisions: nextState.decisions ?? [] });
+    } catch (err) {
+      console.error('Failed to save booking link:', err);
+      alert('Failed to save booking link.');
+    }
+  }
+
   async function reset() {
     await api('/reset', { method: 'POST' });
     await refresh();
@@ -428,6 +443,16 @@ export default function App() {
             ) : (
               <p className="empty-state">No booking link configured.</p>
             )}
+            <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+              <input
+                aria-label="Booking link"
+                value={bookingLink}
+                onChange={(event) => setBookingLink(event.target.value)}
+                placeholder="https://cal.com/your-link"
+                style={{ fontSize: '0.72rem', padding: '6px 8px', flex: 1 }}
+              />
+              <button className="button primary sm" type="button" onClick={saveBookingLink}>Save</button>
+            </div>
           </section>
 
           {/* Gemini AI Config card */}

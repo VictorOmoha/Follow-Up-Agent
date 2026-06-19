@@ -115,6 +115,31 @@ describe('gemini service fallbacks and integrations', () => {
       expect(result.channel).toBe('Email');
     });
 
+    it('maps common JSON webhook fields without Gemini', async () => {
+      const payload = JSON.stringify({
+        firstName: 'Maya',
+        lastName: 'Johnson',
+        org: 'Johnson Roofing',
+        requestedService: 'roof repair estimate',
+        budgetAmount: 3500,
+        timeframe: 'this week',
+        message: 'web leads are not answered quickly',
+        preferredChannel: 'SMS',
+        phone: '+15551234567',
+      });
+
+      const result = await extractLeadFromText(payload, 'CRM Webhook Intake');
+
+      expect(result.name).toBe('Maya Johnson');
+      expect(result.company).toBe('Johnson Roofing');
+      expect(result.service).toBe('roof repair estimate');
+      expect(result.budget).toBe('3500');
+      expect(result.urgency).toBe('this week');
+      expect(result.pain).toBe('web leads are not answered quickly');
+      expect(result.channel).toBe('SMS');
+      expect(result.contact).toBe('+15551234567');
+    });
+
     it('calls live API when API key is provided and parses lead successfully', async () => {
       const mockFetch = vi.fn().mockImplementation(() =>
         Promise.resolve({

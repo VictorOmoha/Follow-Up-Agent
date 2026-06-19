@@ -296,14 +296,57 @@ function fieldFromEmail(body: string, field: string, fallback = '') {
   return match?.[1]?.trim() || fallback;
 }
 
+function getStringField(record: Record<string, unknown>, keys: string[], fallback = '') {
+  for (const key of keys) {
+    const value = record[key];
+    if (value !== undefined && value !== null && String(value).trim()) {
+      return String(value).trim();
+    }
+  }
+  return fallback;
+}
+
 function fallbackExtractLead(text: string, subject?: string, fromEmail?: string): LLMExtractedLead {
-  const name = fieldFromEmail(text, 'Name', fromEmail?.split('@')[0] || 'Unknown Lead');
-  const company = fieldFromEmail(text, 'Company', fromEmail?.split('@')[0] || 'Self-Employed');
-  const service = fieldFromEmail(text, 'Service', subject || 'General Inquiry');
-  const budget = fieldFromEmail(text, 'Budget', 'unknown');
-  const urgency = fieldFromEmail(text, 'Urgency', 'unknown');
-  const pain = fieldFromEmail(text, 'Pain', subject || 'No pain described');
-  
+  let jsonRecord: Record<string, unknown> | undefined;
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      jsonRecord = parsed as Record<string, unknown>;
+    }
+  } catch {
+    jsonRecord = undefined;
+  }
+
+  const firstLast = jsonRecord
+    ? [jsonRecord.firstName, jsonRecord.lastName].filter(Boolean).map(String).join(' ').trim()
+    : '';
+  const name = jsonRecord
+    ? getStringField(jsonRecord, ['name', 'fullName'], firstLast || fromEmail?.split('@')[0] || 'Unknown Lead')
+    : fieldFromEmail(text, 'Name', fromEmail?.split('@')[0] || 'Unknown Lead');
+  const company = jsonRecord
+    ? getStringField(jsonRecord, ['company', 'org', 'organization'], fromEmail?.split('@')[0] || 'Self-Employed')
+    : fieldFromEmail(text, 'Company', fromEmail?.split('@')[0] || 'Self-Employed');
+  const service = jsonRecord
+    ? getStringField(jsonRecord, ['service', 'requestedService', 'interest'], subject || 'General Inquiry')
+    : fieldFromEmail(text, 'Service', subject || 'General Inquiry');
+  const budget = jsonRecord
+    ? getStringField(jsonRecord, ['budget', 'budgetAmount', 'value'], 'unknown')
+    : fieldFromEmail(text, 'Budget', 'unknown');
+  const urgency = jsonRecord
+    ? getStringField(jsonRecord, ['urgency', 'timeframe', 'timeline'], 'unknown')
+    : fieldFromEmail(text, 'Urgency', 'unknown');
+  const pain = jsonRecord
+    ? getStringField(jsonRecord, ['pain', 'description', 'message', 'notes'], subject || 'No pain described')
+    : fieldFromEmail(text, 'Pain', subject || 'No pain described');
+  const contact = jsonRecord
+    ? getStringField(jsonRecord, ['contact', 'email', 'phone'], fromEmail || 'none')
+    : fromEmail || 'none';
+
+  let channel: 'Email' | 'SMS' | 'Call' = 'Email';
+  const rawChannel = jsonRecord ? getStringField(jsonRecord, ['channel', 'preferredChannel'], '').toUpperCase() : '';
+  if (rawChannel === 'SMS') channel = 'SMS';
+  else if (rawChannel === 'CALL') channel = 'Call';
+
   return {
     name,
     company,
@@ -311,8 +354,8 @@ function fallbackExtractLead(text: string, subject?: string, fromEmail?: string)
     budget,
     urgency,
     pain,
-    channel: 'Email',
-    contact: fromEmail || 'none',
+    channel,
+    contact,
   };
 }
 

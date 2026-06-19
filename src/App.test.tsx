@@ -14,6 +14,8 @@ type TestState = {
   emailMessages: Array<Record<string, string>>;
   config?: {
     bookingLink: string;
+    autopilotEnabled?: boolean;
+    geminiApiKeyConfigured?: boolean;
   };
 };
 
@@ -101,6 +103,14 @@ function installApiMock() {
     if (path === '/agent/cycle') {
       state.decisions.unshift({ id: 'decision_cycle_1', type: 'autopilot', observation: 'Cycle checked 1 inbox, 2 leads, and 3 tasks.', reasoning: 'Autopilot imports new leads, drafts due follow-ups, then surfaces owner approvals.', action: 'Imported 0 email leads, created 0 drafts, found 1 approval task and 0 human handoffs.', confidence: 90, createdAt: '2026-05-17T20:03:00Z' });
       return Response.json({ startedAt: '2026-05-17T20:03:00Z', imported: 0, createdDrafts: 0, waitingApproval: 1, needsHuman: 0 });
+    }
+    if (path === '/config') {
+      state.config = {
+        bookingLink: body.bookingLink ?? state.config?.bookingLink ?? 'https://calendar.google.com/calendar/appointments/schedules/demo',
+        autopilotEnabled: body.autopilotEnabled ?? state.config?.autopilotEnabled ?? false,
+        geminiApiKeyConfigured: body.geminiApiKey !== undefined ? Boolean(body.geminiApiKey) : state.config?.geminiApiKeyConfigured,
+      };
+      return Response.json(state);
     }
     if (path === '/reset') { state = makeState(); return Response.json(state); }
     if (path === '/leads/lead_1/replies') {
@@ -224,7 +234,7 @@ describe('Omoha Follow-Up Agent', () => {
     expect(screen.getAllByText(/Still happy to help with immigration consultation/i).length).toBeGreaterThan(0);
   });
 
-  it('renders the Owner Daily Digest and Calendar Link cards', async () => {
+  it('renders the Owner Daily Digest and Calendar Link cards and saves booking link changes', async () => {
     render(<App />);
     await waitFor(() => expect(screen.getByText(/API Online/i)).toBeInTheDocument());
 
@@ -235,5 +245,12 @@ describe('Omoha Follow-Up Agent', () => {
 
     expect(screen.getByRole('heading', { name: /Calendar Link/i })).toBeInTheDocument();
     expect(screen.getByText('https://calendar.google.com/calendar/appointments/schedules/demo')).toBeInTheDocument();
+
+    const bookingInput = screen.getByLabelText(/Booking link/i);
+    await userEvent.clear(bookingInput);
+    await userEvent.type(bookingInput, 'https://cal.com/omoha/demo');
+    await userEvent.click(screen.getAllByRole('button', { name: /^Save$/i })[0]);
+
+    await waitFor(() => expect(screen.getByText('https://cal.com/omoha/demo')).toBeInTheDocument());
   });
 });
