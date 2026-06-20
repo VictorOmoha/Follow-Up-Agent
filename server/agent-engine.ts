@@ -334,9 +334,9 @@ export function createAgentEngine(options: EngineOptions = {}) {
   async function approveMessageInner(messageId: string) {
     const timestamp = now().toISOString();
     const message = state.messages.find((item) => item.id === messageId);
-    if (!message) throw new Error(`Message not found: ${messageId}`);
+    if (!message) { const e = new Error(`Message not found: ${messageId}`); (e as any).statusCode = 404; throw e; }
     const lead = state.leads.find((item) => item.id === message.leadId);
-    if (!lead) throw new Error(`Lead not found: ${message.leadId}`);
+    if (!lead) { const e = new Error(`Lead not found: ${message.leadId}`); (e as any).statusCode = 404; throw e; }
 
     message.status = 'sent';
     message.sentAt = timestamp;
@@ -618,8 +618,8 @@ export function createAgentEngine(options: EngineOptions = {}) {
   async function syncEmailInbox(inboxId: string) {
     const timestamp = now().toISOString();
     const inbox = state.inboxes.find((item) => item.id === inboxId);
-    if (!inbox) throw new Error(`Inbox not found: ${inboxId}`);
-    if (inbox.status !== 'connected') throw new Error(`Inbox is not connected: ${inbox.email}`);
+    if (!inbox) { const e = new Error(`Inbox not found: ${inboxId}`); (e as any).statusCode = 404; throw e; }
+    if (inbox.status !== 'connected') { const e = new Error(`Inbox is not connected: ${inbox.email}`); (e as any).statusCode = 400; throw e; }
 
     if (inbox.provider === 'gmail' && inbox.credentials && inbox.credentials.accessToken !== 'mock_access_token') {
       return await syncRealGmailInbox(inbox, timestamp);
@@ -652,7 +652,7 @@ export function createAgentEngine(options: EngineOptions = {}) {
   async function recordReply(leadId: string, body: string) {
     const timestamp = now().toISOString();
     const lead = state.leads.find((item) => item.id === leadId);
-    if (!lead) throw new Error(`Lead not found: ${leadId}`);
+    if (!lead) { const e = new Error(`Lead not found: ${leadId}`); (e as any).statusCode = 404; throw e; }
     const message: MessageRecord = {
       id: makeId('msg'),
       leadId,
@@ -695,7 +695,7 @@ export function createAgentEngine(options: EngineOptions = {}) {
     } else if (analysis.isDecline) {
       lead.status = 'closed';
       state.tasks = state.tasks.map((task) =>
-        task.leadId === leadId && task.status === 'scheduled' ? { ...task, status: 'done' } : task
+        task.leadId === leadId && (task.status === 'scheduled' || task.status === 'waiting_approval') ? { ...task, status: 'done' } : task
       );
       addTimeline(leadId, 'Lead replied - opt-out received', body);
       addDecision({
@@ -709,6 +709,18 @@ export function createAgentEngine(options: EngineOptions = {}) {
     } else {
       lead.status = 'contacted';
       const isAutopilot = !!state.config?.autopilotEnabled;
+
+      // Cancel any previous pending draft and its approval task for this lead.
+      // The reply supersedes the original first-response draft.
+      state.messages = state.messages.filter((m) =>
+        !(m.leadId === leadId && m.direction === 'outbound' && m.status === 'draft')
+      );
+      state.tasks = state.tasks.map((t) =>
+        t.leadId === leadId && t.type === 'approve_message' && t.status === 'waiting_approval'
+          ? { ...t, status: 'done' as TaskStatus }
+          : t
+      );
+
       const draftMessage: MessageRecord = {
         id: makeId('msg'),
         leadId,

@@ -216,14 +216,17 @@ export async function analyzeReply(
   if (!apiKey) {
     console.log('[GEMINI SERVICE] No API key. Falling back to rules-based reply analysis.');
     const isBooking = /\b(yes|works|book|schedule|tomorrow|today|available|call|appointment|10|3:30)\b/i.test(replyBody);
-    const isDecline = /\b(stop|unsubscribe|no|not interested|remove|optout|cancel)\b/i.test(replyBody);
+    const isDecline = /\b(stop|unsubscribe|no thanks|not interested|remove me|optout|opt-out|cancel|do not contact|don't contact)\b/i.test(replyBody);
+    const draftReply = isBooking
+      ? 'Great! Looking forward to it. If you need anything else, just let me know.'
+      : isDecline
+        ? 'Understood. I will stop following up.'
+        : 'Thanks for getting back to me. What would be the best time to connect for a quick call?';
     return {
       isBookingIntent: isBooking,
       isDecline: isDecline,
       reasoning: 'Rules-based regex matched keywords.',
-      draftReply: isBooking
-        ? 'Great! Looking forward to it. If you need anything else, just let me know.'
-        : 'Understood. I will stop following up.',
+      draftReply,
     };
   }
 
@@ -268,14 +271,16 @@ Return a JSON object matching this schema:
   } catch (error) {
     console.error('[GEMINI SERVICE] Reply analysis failed. Falling back to rules-based analysis:', error);
     const isBooking = /\b(yes|works|book|schedule|tomorrow|today|available|call|appointment|10|3:30)\b/i.test(replyBody);
-    const isDecline = /\b(stop|unsubscribe|no|not interested|remove|optout|cancel)\b/i.test(replyBody);
+    const isDecline = /\b(stop|unsubscribe|no thanks|not interested|remove me|optout|opt-out|cancel|do not contact|don't contact)\b/i.test(replyBody);
     return {
       isBookingIntent: isBooking,
       isDecline: isDecline,
       reasoning: 'Rules-based regex matched keywords after LLM error.',
       draftReply: isBooking
         ? 'Great! Looking forward to it. If you need anything else, just let me know.'
-        : 'Understood. I will stop following up.',
+        : isDecline
+          ? 'Understood. I will stop following up.'
+          : 'Thanks for getting back to me. What would be the best time to connect for a quick call?',
     };
   }
 }
@@ -317,45 +322,134 @@ function fallbackExtractLead(text: string, subject?: string, fromEmail?: string)
     jsonRecord = undefined;
   }
 
-  const firstLast = jsonRecord
-    ? [jsonRecord.firstName, jsonRecord.lastName].filter(Boolean).map(String).join(' ').trim()
-    : '';
-  const name = jsonRecord
-    ? getStringField(jsonRecord, ['name', 'fullName'], firstLast || fromEmail?.split('@')[0] || 'Unknown Lead')
-    : fieldFromEmail(text, 'Name', fromEmail?.split('@')[0] || 'Unknown Lead');
-  const company = jsonRecord
-    ? getStringField(jsonRecord, ['company', 'org', 'organization'], fromEmail?.split('@')[0] || 'Self-Employed')
-    : fieldFromEmail(text, 'Company', fromEmail?.split('@')[0] || 'Self-Employed');
-  const service = jsonRecord
-    ? getStringField(jsonRecord, ['service', 'requestedService', 'interest'], subject || 'General Inquiry')
-    : fieldFromEmail(text, 'Service', subject || 'General Inquiry');
-  const budget = jsonRecord
-    ? getStringField(jsonRecord, ['budget', 'budgetAmount', 'value'], 'unknown')
-    : fieldFromEmail(text, 'Budget', 'unknown');
-  const urgency = jsonRecord
-    ? getStringField(jsonRecord, ['urgency', 'timeframe', 'timeline'], 'unknown')
-    : fieldFromEmail(text, 'Urgency', 'unknown');
-  const pain = jsonRecord
-    ? getStringField(jsonRecord, ['pain', 'description', 'message', 'notes'], subject || 'No pain described')
-    : fieldFromEmail(text, 'Pain', subject || 'No pain described');
-  const contact = jsonRecord
-    ? getStringField(jsonRecord, ['contact', 'email', 'phone'], fromEmail || 'none')
-    : fromEmail || 'none';
+  // If we have a JSON record, use structured field mapping
+  if (jsonRecord) {
+    // Check if the JSON has any standard lead fields. If it only has a "message"
+    // or "body" field, treat that as free text and fall through to heuristics.
+    const hasStandardFields = ['name', 'fullName', 'firstName', 'lastName', 'company', 'org', 'organization',
+      'service', 'requestedService', 'interest', 'budget', 'budgetAmount', 'value',
+      'urgency', 'timeframe', 'timeline', 'pain', 'description', 'notes',
+      'channel', 'preferredChannel', 'contact', 'email', 'phone'].some(key => {
+      const v = jsonRecord[key];
+      return v !== undefined && v !== null && String(v).trim();
+    });
 
-  let channel: 'Email' | 'SMS' | 'Call' = 'Email';
-  const rawChannel = jsonRecord ? getStringField(jsonRecord, ['channel', 'preferredChannel'], '').toUpperCase() : '';
-  if (rawChannel === 'SMS') channel = 'SMS';
-  else if (rawChannel === 'CALL') channel = 'Call';
+    if (hasStandardFields) {
+      const firstLast = [jsonRecord.firstName, jsonRecord.lastName].filter(Boolean).map(String).join(' ').trim();
+      const name = getStringField(jsonRecord, ['name', 'fullName'], firstLast || fromEmail?.split('@')[0] || 'Unknown Lead');
+      const company = getStringField(jsonRecord, ['company', 'org', 'organization'], fromEmail?.split('@')[0] || 'Self-Employed');
+      const service = getStringField(jsonRecord, ['service', 'requestedService', 'interest'], subject || 'General Inquiry');
+      const budget = getStringField(jsonRecord, ['budget', 'budgetAmount', 'value'], 'unknown');
+      const urgency = getStringField(jsonRecord, ['urgency', 'timeframe', 'timeline'], 'unknown');
+      const pain = getStringField(jsonRecord, ['pain', 'description', 'message', 'notes'], subject || 'No pain described');
+      const contact = getStringField(jsonRecord, ['contact', 'email', 'phone'], fromEmail || 'none');
+
+      let channel: 'Email' | 'SMS' | 'Call' = 'Email';
+      const rawChannel = getStringField(jsonRecord, ['channel', 'preferredChannel'], '').toUpperCase();
+      if (rawChannel === 'SMS') channel = 'SMS';
+      else if (rawChannel === 'CALL') channel = 'Call';
+
+      return { name, company, service, budget, urgency, pain, channel, contact };
+    }
+
+    // JSON only has a message/body/text field - extract that and use free-text heuristics
+    const messageText = getStringField(jsonRecord, ['message', 'body', 'text', 'content', 'description'], '');
+    if (messageText) {
+      // Fall through to free-text heuristics with the extracted message
+      return fallbackExtractLead(messageText, subject, fromEmail);
+    }
+  }
+
+  // No JSON: try "Field: value" format first, then fall back to free-text heuristics
+  const name = fieldFromEmail(text, 'Name', '');
+  const company = fieldFromEmail(text, 'Company', '');
+  const service = fieldFromEmail(text, 'Service', '');
+  const budget = fieldFromEmail(text, 'Budget', '');
+  const urgency = fieldFromEmail(text, 'Urgency', '');
+  const pain = fieldFromEmail(text, 'Pain', '');
+
+  // If "Field: value" patterns were found, use them
+  if (name || company || service) {
+    let channel: 'Email' | 'SMS' | 'Call' = 'Email';
+    const rawChannel = fieldFromEmail(text, 'Channel', '').toUpperCase();
+    if (rawChannel === 'SMS') channel = 'SMS';
+    else if (rawChannel === 'CALL') channel = 'Call';
+
+    return {
+      name: name || fromEmail?.split('@')[0] || 'Unknown Lead',
+      company: company || fromEmail?.split('@')[0] || 'Self-Employed',
+      service: service || subject || 'General Inquiry',
+      budget: budget || 'unknown',
+      urgency: urgency || 'unknown',
+      pain: pain || subject || text.slice(0, 200),
+      channel,
+      contact: fromEmail || 'none',
+    };
+  }
+
+  // Free-text heuristics for unstructured messages
+  const lowerText = text.toLowerCase();
+
+  // Extract name: look for "I'm X", "my name is X", "this is X", "I am X"
+  let extractedName = '';
+  const namePatterns = [
+    /i['']?m\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i,
+    /my name is\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i,
+    /this is\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i,
+    /i am\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i,
+    /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+))/,
+  ];
+  for (const pattern of namePatterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      extractedName = match[1].trim();
+      break;
+    }
+  }
+
+  // Extract company: look for "from X", "X company", "X LLC", "X Inc", "X Corp"
+  let extractedCompany = '';
+  const companyPatterns = [
+    /from\s+([A-Z][A-Za-z0-9&\s]+?)(?:\.|\,|$)/,
+    /([A-Z][A-Za-z0-9&\s]+?)\s+(?:LLC|Inc|Corp|Corporation|Company|Co\.|Group|Firm|Dental|Law|Roofing|Construction|Services)/,
+  ];
+  for (const pattern of companyPatterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      extractedCompany = match[1].trim();
+      break;
+    }
+  }
+
+  // Extract budget: look for dollar amounts or "budget is X"
+  let extractedBudget = '';
+  const budgetMatch = text.match(/\$?\s*([\d,]+)\s*(?:dollars|k|thousand|budget|budget is)/i);
+  const budgetMatch2 = text.match(/budget(?:\s+is)?(?:\s+around|\s+about)?\s*:?\s*\$?\s*([\d,]+)/i);
+  if (budgetMatch2?.[1]) extractedBudget = budgetMatch2[1];
+  else if (budgetMatch?.[1]) extractedBudget = budgetMatch[1];
+
+  // Extract urgency: look for urgency keywords
+  let extractedUrgency = '';
+  if (/\basap\b|urgent|immediately|right away|emergency/i.test(text)) extractedUrgency = 'ASAP';
+  else if (/this week|this month|soon|next week|next month/i.test(text)) extractedUrgency = text.match(/(this week|this month|soon|next week|next month)/i)?.[0] || 'soon';
+  else if (/whenever|no rush|not urgent/i.test(text)) extractedUrgency = 'whenever';
+
+  // Extract email or phone for contact
+  let extractedContact = fromEmail || '';
+  const emailMatch = text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+  if (emailMatch?.[0]) extractedContact = emailMatch[0];
+  const phoneMatch = text.match(/(\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
+  if (phoneMatch?.[0] && !extractedContact) extractedContact = phoneMatch[0];
 
   return {
-    name,
-    company,
-    service,
-    budget,
-    urgency,
-    pain,
-    channel,
-    contact,
+    name: extractedName || fromEmail?.split('@')[0] || 'Unknown Lead',
+    company: extractedCompany || fromEmail?.split('@')[0] || 'Self-Employed',
+    service: subject || 'General Inquiry',
+    budget: extractedBudget || 'unknown',
+    urgency: extractedUrgency || 'unknown',
+    pain: text.slice(0, 300),
+    channel: phoneMatch?.[0] ? 'SMS' : 'Email',
+    contact: extractedContact || 'none',
   };
 }
 
