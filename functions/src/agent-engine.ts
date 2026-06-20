@@ -1,9 +1,9 @@
-import { type LeadInput } from '../src/lib/agent';
-import { sendSms } from './twilio';
-import { sendEmail } from './email';
-import { makeCall } from './voice';
-import { AsyncLock } from './lock';
-import { analyzeAndScoreLead, generateFollowUpPlan, analyzeReply, extractLeadFromText } from './gemini';
+import { type LeadInput } from './shared/agent.js';
+import { sendSms } from './twilio.js';
+import { sendEmail } from './email.js';
+import { makeCall } from './voice.js';
+import { AsyncLock } from './lock.js';
+import { analyzeAndScoreLead, generateFollowUpPlan, analyzeReply, extractLeadFromText } from './gemini.js';
 
 export type LeadStatus = 'new' | 'waiting_approval' | 'contacted' | 'needs_human' | 'nurture' | 'closed';
 export type MessageStatus = 'draft' | 'sent' | 'received';

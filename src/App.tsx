@@ -7,7 +7,7 @@ import {
 import { type LeadInput, scoreLead } from './lib/agent';
 import './styles.css';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || `${window.location.protocol}//${window.location.hostname === 'localhost' ? '127.0.0.1' : window.location.hostname}:8787/api`;
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 
 type LeadRecord = LeadInput & {
   id: string;
@@ -843,25 +843,35 @@ export default function App() {
                   <h2>Gemini AI</h2>
                 </div>
                 <p className="drawer-desc">Add a Gemini API key to enable AI-powered lead scoring and conversational follow-up drafting. Without it, the agent uses rules-based logic.</p>
-                <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
-                  <input
-                    type={showApiKey ? 'text' : 'password'}
-                    placeholder="Enter Gemini API Key"
-                    aria-label="Gemini API Key"
-                    value={geminiApiKey}
-                    onChange={(e) => setGeminiApiKey(e.target.value)}
-                    style={{ fontSize: '0.8rem', padding: '8px 10px', flex: 1 }}
-                  />
-                  <button className="button secondary sm" type="button" style={{ padding: '4px 10px' }} onClick={() => setShowApiKey(!showApiKey)}>
-                    {showApiKey ? 'Hide' : 'Show'}
-                  </button>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.7rem', fontWeight: 700, color: state.config?.geminiApiKeyConfigured ? '#4ade80' : '#f59e0b' }}>
-                    {state.config?.geminiApiKeyConfigured ? 'Live Gemini AI' : 'Rules Fallback'}
-                  </span>
-                  <button className="button primary sm" type="button" onClick={saveGeminiKey}>Save</button>
-                </div>
+                {state.config?.geminiApiKeyConfigured ? (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0' }}>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#4ade80' }}>
+                      Live Gemini AI (configured server-side)
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+                      <input
+                        type={showApiKey ? 'text' : 'password'}
+                        placeholder="Enter Gemini API Key"
+                        aria-label="Gemini API Key"
+                        value={geminiApiKey}
+                        onChange={(e) => setGeminiApiKey(e.target.value)}
+                        style={{ fontSize: '0.8rem', padding: '8px 10px', flex: 1 }}
+                      />
+                      <button className="button secondary sm" type="button" style={{ padding: '4px 10px' }} onClick={() => setShowApiKey(!showApiKey)}>
+                        {showApiKey ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#f59e0b' }}>
+                        Rules Fallback
+                      </span>
+                      <button className="button primary sm" type="button" onClick={saveGeminiKey}>Save</button>
+                    </div>
+                  </>
+                )}
               </section>
 
               {/* Webhook Intake */}

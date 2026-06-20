@@ -37,7 +37,7 @@ function makeState(): TestState {
 function installApiMock() {
   let state = makeState();
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    const path = url.replace('http://127.0.0.1:8787/api', '');
+    const path = url.replace(/^https?:\/\/[^/]+\/api/, '').replace(/^\/api/, '');
     const body = init?.body ? JSON.parse(String(init.body)) : {};
 
     if (path === '/state') return Response.json(state);
