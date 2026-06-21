@@ -9,6 +9,17 @@ const gmailScopeNames = ['gmail.readonly', 'gmail.send', 'gmail.modify'] as cons
 const gmailScopes = gmailScopeNames.map((scope) => `https://www.googleapis.com/auth/${scope}`);
 const defaultRedirectUri = process.env.GMAIL_REDIRECT_URI || 'http://127.0.0.1:8787/api/inboxes/gmail/callback';
 
+// The mock-auth URL is opened via `window.location.href` on the frontend, so it
+// must be absolute when the frontend and API live on different origins (local
+// dev: web on :5173, API on :8787) and relative when they share an origin
+// (Firebase Hosting rewrites /api/** to the function). Cloud runtimes set one of
+// these env vars; local dev sets none, so we fall back to the dev API origin.
+function mockAuthBaseUrl(): string {
+  if (process.env.OAUTH_PUBLIC_BASE_URL !== undefined) return process.env.OAUTH_PUBLIC_BASE_URL;
+  const isCloud = !!(process.env.FUNCTION_TARGET || process.env.FIREBASE_CONFIG || process.env.K_SERVICE);
+  return isCloud ? '' : 'http://127.0.0.1:8787';
+}
+
 function makeState() {
   return `gmail_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -26,7 +37,7 @@ export function buildGmailOAuthStart(config: GmailOAuthConfig) {
       return {
         status: 'ready' as const,
         provider: 'gmail' as const,
-        authUrl: `/api/inboxes/gmail/mock-auth?${params.toString()}`,
+        authUrl: `${mockAuthBaseUrl()}/api/inboxes/gmail/mock-auth?${params.toString()}`,
         redirectUri,
         state,
         scopes: [...gmailScopeNames],
