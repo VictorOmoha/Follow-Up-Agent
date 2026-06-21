@@ -9,6 +9,13 @@ dist/
 .env.local
 .env.*.local
 
+# Secrets / service account keys — NEVER commit
+.firebase-service-account.json
+*-service-account.json
+*serviceAccount*.json
+*.pem
+*.key
+
 # State data
 data/agent-state.json
 

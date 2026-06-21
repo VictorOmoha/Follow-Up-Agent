@@ -36,9 +36,12 @@ async function getStateDoc(): Promise<FirestoreStateDoc | undefined> {
       const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
       if (credentialsPath) {
-        // Local dev with service account key
-        const credentials = await import(credentialsPath);
-        initializeApp({ credential: cert(credentials.default || credentials), projectId });
+        // Local dev with an explicit service account key file. Read + parse the
+        // JSON directly (a dynamic `import()` of an absolute JSON path requires an
+        // import attribute on newer Node and is not portable).
+        const { readFileSync } = await import('node:fs');
+        const credentials = JSON.parse(readFileSync(credentialsPath, 'utf8'));
+        initializeApp({ credential: cert(credentials), projectId });
       } else {
         // Cloud Functions - ADC is automatic
         initializeApp({ projectId });
