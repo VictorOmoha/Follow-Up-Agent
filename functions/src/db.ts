@@ -1,5 +1,5 @@
 import { type AgentState } from './agent-engine.js';
-import { createCollectionStore, type FirestoreLike, type StateStore } from './store/firestore-store.js';
+import { createCollectionStore, migrateBlobToCollections, type FirestoreLike, type StateStore } from './store/firestore-store.js';
 
 /**
  * Firestore is always enabled in production (Cloud Functions).
@@ -103,7 +103,22 @@ export async function loadStateFromFirestore(): Promise<AgentState | undefined> 
   const store = await getStore();
   if (!store) return undefined;
   try {
-    return await store.load();
+    const loaded = await store.load();
+    if (loaded) return loaded;
+
+    // First boot in collections mode with no collections yet: migrate the legacy
+    // blob (if any) so switching AGENT_STORE=collections never loses data.
+    if (storeMode() === 'collections') {
+      const db = await getDb();
+      if (db) {
+        const migrated = await migrateBlobToCollections(db, store);
+        if (migrated) {
+          console.log('[DB] Migrated legacy blob state into per-entity collections.');
+          return migrated;
+        }
+      }
+    }
+    return undefined;
   } catch (error) {
     console.error('Failed to load state from Firestore:', error);
     return undefined;

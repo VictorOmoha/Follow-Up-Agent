@@ -149,9 +149,14 @@ The only real differences between the two `index.ts` files are the HTTP framewor
 | 1 | ✅ Extract shared source; `server/*` re-export from `functions/src/*` (done) | low | yes |
 | 2 | ✅ Per-entity `collections` store behind `AGENT_STORE` flag; diff-writes + log pruning (done) | low | yes |
 | 3 | Move per-lead mutations into `runTransaction`; make `collections` the default | med | yes (flag) |
-| 4 | Add pruning/TTL on `timeline` + `decisions`; paginate `/api/state` | low | yes |
-| 5 | Backfill: one-time script splits the existing `settings/state` blob into collections | med | snapshot first |
+| 4 | ✅ Prune `timeline` + `decisions` on save (done in Phase 2; TTL/pagination of `/api/state` still open) | low | yes |
+| 5 | ✅ Lossless auto-migration: first collections-mode load backfills from the blob (done) | med | yes (blob left intact) |
 | 6 | Delete the blob path + in-memory `AsyncLock` | low | — |
+
+**Adopting `collections` is now safe.** Set `AGENT_STORE=collections`; the first
+load auto-migrates the existing blob into collections and leaves the blob intact,
+so reverting is just `AGENT_STORE=blob`. What remains for Phase 3 is the engine
+rearchitecture for same-entity transactional safety (below).
 
 Keep the local-file backend (`data/agent-state.json`) for dev — it can stay a
 single file; the cap/concurrency issues only matter in the multi-instance cloud.

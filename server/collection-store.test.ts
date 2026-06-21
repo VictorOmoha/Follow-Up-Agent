@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createCollectionStore, type FirestoreLike } from '../functions/src/store/firestore-store';
+import { createCollectionStore, migrateBlobToCollections, type FirestoreLike } from '../functions/src/store/firestore-store';
 import { type AgentState } from '../functions/src/agent-engine';
 
 /**
@@ -145,5 +145,25 @@ describe('collection store', () => {
   it('returns undefined when nothing is persisted', async () => {
     const store = createCollectionStore(db);
     expect(await store.load()).toBeUndefined();
+  });
+
+  it('migrates a legacy blob into collections losslessly', async () => {
+    // Seed the legacy single-document blob.
+    const blob = emptyState({ leads: [lead('a', '2026-01-01T00:00:00Z'), lead('b', '2026-02-01T00:00:00Z')] });
+    db.store.set('settings', new Map([['state', blob as unknown as Record<string, unknown>]]));
+
+    const store = createCollectionStore(db);
+    expect(await store.load()).toBeUndefined(); // no collections yet
+
+    const migrated = await migrateBlobToCollections(db, store);
+    expect(migrated).toBeDefined();
+    expect(db.count('leads')).toBe(2);
+
+    // After migration, a fresh store loads the same leads from collections.
+    const reloaded = await createCollectionStore(db).load();
+    expect(reloaded!.leads.map((l) => l.id).sort()).toEqual(['a', 'b']);
+
+    // The blob is left intact so the switch stays reversible.
+    expect(db.count('settings')).toBe(1);
   });
 });

@@ -148,3 +148,19 @@ export function createCollectionStore(db: FirestoreLike): StateStore {
 
   return { load, save };
 }
+
+/**
+ * One-time, lossless migration from the legacy single-document blob
+ * (settings/state) into the per-entity collections. Reads the blob and, if
+ * present, writes it through the collection store. The blob is left in place so
+ * the switch stays reversible (set AGENT_STORE=blob to revert). Returns the
+ * migrated state, or undefined if there was no blob to migrate.
+ */
+export async function migrateBlobToCollections(db: FirestoreLike, store: StateStore): Promise<AgentState | undefined> {
+  const snap = await db.collection('settings').doc('state').get();
+  if (!snap.exists) return undefined;
+  const blob = snap.data() as AgentState | undefined;
+  if (!blob) return undefined;
+  await store.save(blob);
+  return blob;
+}
