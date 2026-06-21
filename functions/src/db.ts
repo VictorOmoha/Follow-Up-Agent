@@ -1,11 +1,5 @@
 import { type AgentState } from './agent-engine.js';
-
-type FirestoreStateDoc = {
-  get: () => Promise<{ exists: boolean; data: () => unknown }>;
-  set: (state: AgentState) => Promise<unknown>;
-};
-
-let stateDocPromise: Promise<FirestoreStateDoc | undefined> | undefined;
+import { createCollectionStore, type FirestoreLike, type StateStore } from './store/firestore-store.js';
 
 /**
  * Firestore is always enabled in production (Cloud Functions).
@@ -20,12 +14,35 @@ function isFirestoreEnabled() {
     !!process.env.GOOGLE_APPLICATION_CREDENTIALS;
 }
 
-async function getStateDoc(): Promise<FirestoreStateDoc | undefined> {
-  if (!isFirestoreEnabled()) {
-    return undefined;
-  }
+/**
+ * Persistence layout. Default `blob` keeps the legacy single-document behavior
+ * (settings/state). `collections` uses one document per entity, which removes
+ * the 1 MB-per-document cap and stops disjoint concurrent writes from clobbering
+ * each other. See docs/persistence-refactor.md.
+ */
+function storeMode(): 'blob' | 'collections' {
+  return process.env.AGENT_STORE?.toLowerCase() === 'collections' ? 'collections' : 'blob';
+}
 
-  stateDocPromise ??= (async () => {
+// Superset of FirestoreLike that also exposes the doc-level get/set used by the
+// legacy blob store. Structurally assignable to FirestoreLike, so it can be
+// passed straight to createCollectionStore.
+interface FirestoreDb extends FirestoreLike {
+  collection(name: string): {
+    doc(id: string): {
+      get(): Promise<{ exists: boolean; data(): Record<string, unknown> | undefined }>;
+      set(data: unknown): Promise<unknown>;
+    };
+    get(): Promise<{ docs: Array<{ id: string; data(): Record<string, unknown> }> }>;
+  };
+}
+
+let dbPromise: Promise<FirestoreDb | undefined> | undefined;
+
+async function getDb(): Promise<FirestoreDb | undefined> {
+  if (!isFirestoreEnabled()) return undefined;
+
+  dbPromise ??= (async () => {
     const [{ initializeApp, getApps, cert }, { getFirestore }] = await Promise.all([
       import('firebase-admin/app'),
       import('firebase-admin/firestore'),
@@ -50,22 +67,43 @@ async function getStateDoc(): Promise<FirestoreStateDoc | undefined> {
 
     const db = getFirestore();
     db.settings({ ignoreUndefinedProperties: true });
-    return db.collection('settings').doc('state') as unknown as FirestoreStateDoc;
+    return db as unknown as FirestoreDb;
   })();
 
-  return stateDocPromise;
+  return dbPromise;
+}
+
+// ─── Legacy single-document store ────────────────────────────
+function createBlobStore(db: FirestoreDb): StateStore {
+  const stateDoc = db.collection('settings').doc('state');
+  return {
+    async load() {
+      const doc = await stateDoc.get();
+      if (!doc.exists) return undefined;
+      return doc.data() as AgentState;
+    },
+    async save(state: AgentState) {
+      await stateDoc.set(state);
+    },
+  };
+}
+
+let storePromise: Promise<StateStore | undefined> | undefined;
+
+async function getStore(): Promise<StateStore | undefined> {
+  storePromise ??= (async () => {
+    const db = await getDb();
+    if (!db) return undefined;
+    return storeMode() === 'collections' ? createCollectionStore(db) : createBlobStore(db);
+  })();
+  return storePromise;
 }
 
 export async function loadStateFromFirestore(): Promise<AgentState | undefined> {
-  const stateDoc = await getStateDoc();
-  if (!stateDoc) return undefined;
-
+  const store = await getStore();
+  if (!store) return undefined;
   try {
-    const doc = await stateDoc.get();
-    if (!doc.exists) {
-      return undefined;
-    }
-    return doc.data() as AgentState;
+    return await store.load();
   } catch (error) {
     console.error('Failed to load state from Firestore:', error);
     return undefined;
@@ -73,11 +111,10 @@ export async function loadStateFromFirestore(): Promise<AgentState | undefined> 
 }
 
 export async function saveStateToFirestore(state: AgentState): Promise<void> {
-  const stateDoc = await getStateDoc();
-  if (!stateDoc) return;
-
+  const store = await getStore();
+  if (!store) return;
   try {
-    await stateDoc.set(state);
+    await store.save(state);
   } catch (error) {
     console.error('Failed to save state to Firestore:', error);
   }

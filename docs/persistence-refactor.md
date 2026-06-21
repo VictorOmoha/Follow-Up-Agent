@@ -64,7 +64,22 @@ For cross-lead rate limiting, move the limiter to Firestore (a `ratelimits/{ip}`
 doc with a transaction) or Firebase App Check — the in-memory one is ineffective
 across instances.
 
-## Repository layer
+## What Phase 2 actually shipped
+
+`functions/src/store/firestore-store.ts` implements a `StateStore` (`load` /
+`save(fullState)`) selected by `AGENT_STORE`. It keeps the existing in-memory
+engine but changes *how* state lands in Firestore:
+
+- one document per entity in top-level collections (no 1 MB cap),
+- **diff-based writes** — it remembers what it last persisted and only writes the
+  docs that changed, plus deletes for entities that vanished, so two instances
+  mutating *different* leads no longer clobber each other,
+- **log pruning** — `timeline` and `decisions` are capped (1000 newest) on save.
+
+Same-entity concurrent writes are still last-writer-wins; that's what Phase 3's
+transactions close. The granular `Repo` below is the Phase 3 target.
+
+## Repository layer (Phase 3 target)
 
 Introduce a `repo` that the engine calls instead of holding the whole `AgentState`
 in RAM. This is the core change — the engine stops being a giant in-memory blob and
@@ -131,9 +146,9 @@ The only real differences between the two `index.ts` files are the HTTP framewor
 | Phase | Change | Risk | Reversible? |
 |-------|--------|------|-------------|
 | 0 | ✅ gitignore the service-account key (done) | none | — |
-| 1 | Extract shared `core` module; both servers import it | low | yes |
-| 2 | Add `Repo` interface + Firestore impl **alongside** the blob; dual-write behind a flag | low | yes |
-| 3 | Move per-lead mutations into `runTransaction`; switch reads to repo | med | yes (flag) |
+| 1 | ✅ Extract shared source; `server/*` re-export from `functions/src/*` (done) | low | yes |
+| 2 | ✅ Per-entity `collections` store behind `AGENT_STORE` flag; diff-writes + log pruning (done) | low | yes |
+| 3 | Move per-lead mutations into `runTransaction`; make `collections` the default | med | yes (flag) |
 | 4 | Add pruning/TTL on `timeline` + `decisions`; paginate `/api/state` | low | yes |
 | 5 | Backfill: one-time script splits the existing `settings/state` blob into collections | med | snapshot first |
 | 6 | Delete the blob path + in-memory `AsyncLock` | low | — |
