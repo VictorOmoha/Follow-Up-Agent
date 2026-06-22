@@ -148,15 +148,33 @@ The only real differences between the two `index.ts` files are the HTTP framewor
 | 0 | ✅ gitignore the service-account key (done) | none | — |
 | 1 | ✅ Extract shared source; `server/*` re-export from `functions/src/*` (done) | low | yes |
 | 2 | ✅ Per-entity `collections` store behind `AGENT_STORE` flag; diff-writes + log pruning (done) | low | yes |
-| 3 | Move per-lead mutations into `runTransaction`; make `collections` the default | med | yes (flag) |
+| 3 | ✅ Cross-instance lock + fresh-read per mutation (no lost updates, no double-sends) (done) | med | yes (flag) |
 | 4 | ✅ Prune `timeline` + `decisions` on save (done in Phase 2; TTL/pagination of `/api/state` still open) | low | yes |
 | 5 | ✅ Lossless auto-migration: first collections-mode load backfills from the blob (done) | med | yes (blob left intact) |
 | 6 | Delete the blob path + in-memory `AsyncLock` | low | — |
 
 **Adopting `collections` is now safe.** Set `AGENT_STORE=collections`; the first
 load auto-migrates the existing blob into collections and leaves the blob intact,
-so reverting is just `AGENT_STORE=blob`. What remains for Phase 3 is the engine
-rearchitecture for same-entity transactional safety (below).
+so reverting is just `AGENT_STORE=blob`.
+
+## What Phase 3 shipped (concurrency)
+
+In collections mode with Firestore available, the engine is wrapped by
+`functions/src/engine-handle.ts`: every mutating call runs under a cross-instance
+lock (`functions/src/store/distributed-lock.ts`) against a freshly loaded state,
+then persists. This removes the lost-update race (two instances mutating stale
+in-memory copies, last writer wins).
+
+**Why a lock and not per-entity `runTransaction`?** The engine performs external
+I/O — SMS/email/voice/Gmail sends — *inline* with its state mutation. Firestore
+re-runs a transaction callback on contention, so wrapping a whole operation in a
+transaction would re-send those messages on every retry. The lock runs each
+operation exactly once. The cost is that writes serialize globally rather than
+per-entity; fine for this workload. The remaining ceiling: `getState` (reads) is
+eventually consistent across instances, and same-instance throughput is bounded
+by the lock. True per-entity parallel transactions would require refactoring all
+sends into post-commit, retry-safe deferred effects — a larger follow-up only
+worth it at much higher write volume.
 
 Keep the local-file backend (`data/agent-state.json`) for dev — it can stay a
 single file; the cap/concurrency issues only matter in the multi-instance cloud.

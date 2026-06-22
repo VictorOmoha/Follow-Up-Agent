@@ -1,5 +1,5 @@
 import express, { type Request, type Response } from 'express';
-import { createAgentEngine, type AgentState } from './agent-engine.js';
+import { createEngineHandle, type EngineHandle } from './engine-handle.js';
 import { buildGmailOAuthStartFromEnv } from './gmail-oauth.js';
 import { loadStateFromFirestore, saveStateToFirestore } from './db.js';
 import { toPublicAgentState, toPublicInbox } from './public-state.js';
@@ -26,7 +26,7 @@ function getClientIp(request: Request): string {
   return request.ip || request.socket?.remoteAddress || 'unknown';
 }
 
-let engine: ReturnType<typeof createAgentEngine> | undefined;
+let engine: EngineHandle | undefined;
 const enginePromise = initializeEngine();
 
 async function initializeEngine() {
@@ -38,7 +38,7 @@ async function initializeEngine() {
     console.log('No Firestore state found, starting fresh.');
   }
 
-  const eng = createAgentEngine({
+  const eng = await createEngineHandle({
     initialState: firestoreState ?? undefined,
     onChange: async (state) => {
       await saveStateToFirestore(state);
@@ -55,7 +55,7 @@ async function initializeEngine() {
         state.config.bookingLink = process.env.OWNER_BOOKING_LINK || process.env.BOOKING_LINK || state.config.bookingLink;
       }
     }
-    eng.reset(state);
+    await eng.reset(state);
   }
 
   // Ensure initial state is stored in Firestore if it was empty/new
@@ -216,7 +216,7 @@ app.get('/api/inboxes/gmail/callback', async (req, res) => {
     email = profile.emailAddress;
   }
 
-  getEngine().connectEmailInbox({ provider: 'gmail', email, credentials: { accessToken, refreshToken, expiresAt } });
+  await getEngine().connectEmailInbox({ provider: 'gmail', email, credentials: { accessToken, refreshToken, expiresAt } });
 
   const referer = req.headers.referer;
   const redirectUrl = (referer && !referer.includes('/api/inboxes/gmail/mock-auth')) ? referer : '/';
@@ -325,15 +325,15 @@ app.post('/api/webhooks/lead', async (req, res) => {
       detail: `Lead push ingested. Mapped using ${apiKey ? 'Gemini GenAI Extraction' : 'CRM Rule Mapper'}.`,
       createdAt: new Date().toISOString(),
     });
-    getEngine().reset(state);
+    await getEngine().reset(state);
   }
 
   res.status(201).json(run);
 });
 
 // ─── POST /api/inboxes ───────────────────────────────────────
-app.post('/api/inboxes', (req, res) => {
-  const inbox = getEngine().connectEmailInbox(req.body);
+app.post('/api/inboxes', async (req, res) => {
+  const inbox = await getEngine().connectEmailInbox(req.body);
   res.status(201).json(toPublicInbox(inbox));
 });
 
@@ -372,7 +372,7 @@ app.post('/api/agent/cycle', async (req, res) => {
 // ─── POST /api/config ────────────────────────────────────────
 // In production, geminiApiKey is read from env (Firebase Secrets) and
 // cannot be set via the API. In dev mode, it can be set via the UI.
-app.post('/api/config', (req, res) => {
+app.post('/api/config', async (req, res) => {
   const body = req.body as { bookingLink?: string; autopilotEnabled?: boolean; geminiApiKey?: string };
   const isProduction = !!(process.env.FUNCTION_TARGET || process.env.FIREBASE_CONFIG);
 
@@ -393,13 +393,13 @@ app.post('/api/config', (req, res) => {
       geminiApiKey: !isProduction ? (body.geminiApiKey || '') : undefined,
     };
   }
-  getEngine().reset(state);
+  await getEngine().reset(state);
   res.json(toPublicAgentState(getEngine().getState()));
 });
 
 // ─── POST /api/reset ─────────────────────────────────────────
-app.post('/api/reset', (_req, res) => {
-  getEngine().reset();
+app.post('/api/reset', async (_req, res) => {
+  await getEngine().reset();
   res.json(toPublicAgentState(getEngine().getState()));
 });
 

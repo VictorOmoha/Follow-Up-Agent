@@ -1,5 +1,6 @@
 import { type AgentState } from './agent-engine.js';
 import { createCollectionStore, migrateBlobToCollections, type FirestoreLike, type StateStore } from './store/firestore-store.js';
+import { createDistributedLock, type DistributedLock, type LockFirestore } from './store/distributed-lock.js';
 
 /**
  * Firestore is always enabled in production (Cloud Functions).
@@ -133,4 +134,17 @@ export async function saveStateToFirestore(state: AgentState): Promise<void> {
   } catch (error) {
     console.error('Failed to save state to Firestore:', error);
   }
+}
+
+/**
+ * A cross-instance lock for serializing engine mutations, enabled only in
+ * collections mode with Firestore available (the production multi-instance
+ * scenario). Returns undefined otherwise, so the in-memory / blob path keeps its
+ * existing single-instance behavior. See store/distributed-lock.ts.
+ */
+export async function createEngineLockIfEnabled(): Promise<DistributedLock | undefined> {
+  if (storeMode() !== 'collections') return undefined;
+  const db = await getDb();
+  if (!db) return undefined;
+  return createDistributedLock(db as unknown as LockFirestore);
 }

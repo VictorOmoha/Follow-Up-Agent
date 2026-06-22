@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { createAgentEngine, type AgentState } from './agent-engine';
+import { type AgentState } from './agent-engine';
+import { createEngineHandle } from './engine-handle';
 import { buildGmailOAuthStartFromEnv } from './gmail-oauth';
 import { loadStateFromFirestore, saveStateToFirestore } from './db';
 import { toPublicAgentState, toPublicInbox } from './public-state';
@@ -83,7 +84,7 @@ async function start() {
   
   const initialState = firestoreState || readState();
   
-  const engine = createAgentEngine({
+  const engine = await createEngineHandle({
     initialState,
     onChange: async (state) => {
       await saveStateToFirestore(state);
@@ -357,7 +358,7 @@ async function start() {
           email = profile.emailAddress;
         }
 
-        engine.connectEmailInbox({
+        await engine.connectEmailInbox({
           provider: 'gmail',
           email,
           credentials: {
@@ -488,7 +489,7 @@ async function start() {
             detail: `Lead push ingested. Mapped using ${apiKey ? 'Gemini GenAI Extraction' : 'CRM Rule Mapper'}.`,
             createdAt: new Date().toISOString(),
           });
-          engine.reset(state);
+          await engine.reset(state);
         }
 
         sendJson(response, 201, run);
@@ -497,7 +498,7 @@ async function start() {
 
       if (request.method === 'POST' && url.pathname === '/api/inboxes') {
         const body = await readJson(request) as Parameters<typeof engine.connectEmailInbox>[0];
-        const inbox = engine.connectEmailInbox(body);
+        const inbox = await engine.connectEmailInbox(body);
         sendJson(response, 201, toPublicInbox(inbox));
         return;
       }
@@ -551,13 +552,13 @@ async function start() {
             geminiApiKey: body.geminiApiKey || '',
           };
         }
-        engine.reset(state);
+        await engine.reset(state);
         sendJson(response, 200, toPublicAgentState(engine.getState()));
         return;
       }
 
       if (request.method === 'POST' && url.pathname === '/api/reset') {
-        engine.reset();
+        await engine.reset();
         sendJson(response, 200, toPublicAgentState(engine.getState()));
         return;
       }
