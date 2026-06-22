@@ -7,7 +7,7 @@ import { buildGmailOAuthStartFromEnv } from './gmail-oauth';
 import { loadStateFromFirestore, saveStateToFirestore } from './db';
 import { toPublicAgentState, toPublicInbox } from './public-state';
 import { extractLeadFromText } from './gemini';
-import { checkAuth, checkWebhookAuth, isAuthEnabled } from './auth';
+import { checkAuth, checkWebhookAuth, warnIfInsecureAuthPosture } from './auth';
 import { createRateLimiter } from './rate-limiter';
 
 // Load .env file programmatically (built-in Node 20.12+)
@@ -74,6 +74,7 @@ function match(pathname: string, pattern: RegExp) {
 }
 
 async function start() {
+  warnIfInsecureAuthPosture();
   console.log('Loading state from Firestore...');
   const firestoreState = await loadStateFromFirestore();
   if (firestoreState) {

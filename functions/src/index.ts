@@ -4,8 +4,9 @@ import { buildGmailOAuthStartFromEnv } from './gmail-oauth.js';
 import { loadStateFromFirestore, saveStateToFirestore } from './db.js';
 import { toPublicAgentState, toPublicInbox } from './public-state.js';
 import { extractLeadFromText } from './gemini.js';
-import { checkAuth, checkWebhookAuth } from './auth.js';
+import { checkAuth, checkWebhookAuth, warnIfInsecureAuthPosture } from './auth.js';
 import { createRateLimiter } from './rate-limiter.js';
+import { validateTwilioSignature } from './twilio.js';
 
 // Load .env file programmatically (built-in Node 20.12+)
 if (typeof process.loadEnvFile === 'function') {
@@ -30,6 +31,7 @@ let engine: EngineHandle | undefined;
 const enginePromise = initializeEngine();
 
 async function initializeEngine() {
+  warnIfInsecureAuthPosture();
   console.log('Loading state from Firestore...');
   const firestoreState = await loadStateFromFirestore();
   if (firestoreState) {
@@ -408,6 +410,23 @@ app.post('/api/reset', async (_req, res) => {
 // We match the sender's phone to an existing lead and record the reply.
 app.post('/api/sms/inbound', express.urlencoded({ extended: false }), async (req, res) => {
   try {
+    // Verify the request genuinely came from Twilio. Enforced whenever an auth
+    // token is configured; in production without one, the signature can't be
+    // checked, so we warn loudly rather than silently trusting any caller.
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    if (authToken) {
+      const signature = (req.header('X-Twilio-Signature') as string) || '';
+      const url = process.env.TWILIO_WEBHOOK_URL
+        || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.get('host')}${req.originalUrl}`;
+      if (!validateTwilioSignature({ signature, url, params: req.body, authToken })) {
+        console.warn('[TWILIO INBOUND] Rejected request with invalid X-Twilio-Signature.');
+        res.status(403).type('text/xml').send('<Response></Response>');
+        return;
+      }
+    } else if (process.env.FUNCTION_TARGET || process.env.FIREBASE_CONFIG) {
+      console.warn('[TWILIO INBOUND] TWILIO_AUTH_TOKEN not set — inbound SMS signature cannot be verified.');
+    }
+
     const from = (req.body.From as string) || '';
     const body = (req.body.Body as string) || '';
 

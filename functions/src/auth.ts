@@ -15,6 +15,27 @@ export function isAuthEnabled(): boolean {
   return !!process.env.AGENT_API_KEY?.trim();
 }
 
+/**
+ * Surface an insecure posture at startup instead of failing silently. We don't
+ * hard fail-closed because the SPA is served same-origin and calls these
+ * endpoints from the browser, where it cannot safely hold a shared secret —
+ * locking the API down properly requires real user auth (per-user login), not a
+ * single shared key. Until then, at least make an unauthenticated production
+ * deployment loud rather than silent.
+ */
+export function warnIfInsecureAuthPosture(env: NodeJS.ProcessEnv = process.env): boolean {
+  const isCloud = !!(env.FUNCTION_TARGET || env.FIREBASE_CONFIG);
+  if (isCloud && !env.AGENT_API_KEY?.trim()) {
+    console.warn(
+      '[AUTH] Production deployment has no AGENT_API_KEY set — the API ' +
+      '(including /api/state, /api/config, /api/reset) is reachable without a key. ' +
+      'Set AGENT_API_KEY for server-to-server callers, and front the dashboard with real user auth.'
+    );
+    return true;
+  }
+  return false;
+}
+
 export function checkAuth(request: { headers: Record<string, string | string[] | undefined>; url: string }): { ok: boolean; status?: number; error?: string } {
   const apiKey = process.env.AGENT_API_KEY?.trim();
   if (!apiKey) return { ok: true }; // Auth disabled
