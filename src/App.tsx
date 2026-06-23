@@ -394,8 +394,10 @@ export default function App() {
       <header className="app-header">
         <div className="header-brand">
           <span className="eyebrow">Omoha Solutions</span>
-          <h1>Follow-Up Agent</h1>
-          {error && <span className="error-badge">{error}</span>}
+          <div className="brand-title-row">
+            <h1>Follow-Up Agent</h1>
+            {error && <span className="error-badge">{error}</span>}
+          </div>
         </div>
 
         <div className="header-metrics">
@@ -439,7 +441,7 @@ export default function App() {
             <Settings size={14} />
           </button>
           <Bot size={16} />
-          <span className="api-status">{loading ? 'Connecting' : 'Online'}</span>
+          <span className={`api-status ${loading ? 'connecting' : 'online'}`}>{loading ? 'Connecting' : 'Online'}</span>
         </div>
       </header>
 
@@ -519,11 +521,28 @@ export default function App() {
                     <span className={`badge ${selectedLead.status}`}>{selectedLead.status.replace('_', ' ')}</span>
                     <strong>{selectedLead.name} ({selectedLead.company})</strong>
                   </div>
-                  <p>Needs: {selectedLead.service} - Budget: {selectedLead.budget} - Urgency: {selectedLead.urgency} - Channel: {selectedLead.channel}</p>
+                  <div className="lead-quick-stats" aria-label="Selected lead details">
+                    <div>
+                      <span>Need</span>
+                      <strong>{selectedLead.service}</strong>
+                    </div>
+                    <div>
+                      <span>Budget</span>
+                      <strong>{selectedLead.budget}</strong>
+                    </div>
+                    <div>
+                      <span>Urgency</span>
+                      <strong>{selectedLead.urgency}</strong>
+                    </div>
+                    <div>
+                      <span>Channel</span>
+                      <strong>{selectedLead.channel}</strong>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Reasoning + Timeline */}
-                <div className="workbench-middle-section">
+                <div className={`workbench-middle-section ${selectedLeadDecision ? '' : 'single-panel'}`}>
                   {selectedLeadDecision && (
                     <div className="reasoning-box-compact">
                       <span>Agent Reasoning</span>
@@ -535,33 +554,42 @@ export default function App() {
                   <div className="agent-timeline-compact">
                     <span>Timeline & Tasks</span>
                     <div className="timeline-scroll">
-                      {activeTasks.map((task) => (
-                        <div key={task.id} className="timeline-event-item task-item">
-                          <ClipboardCheck size={14} />
-                          <div>
-                            <strong>{task.type.replace('_', ' ')} - {task.status.replace('_', ' ')}</strong>
-                            <p>{task.note}</p>
-                            <small>Due: {new Date(task.dueAt).toLocaleTimeString()}</small>
-                          </div>
-                        </div>
-                      ))}
-                      {activeTimeline.map((event) => (
-                        <div key={event.id} className="timeline-event-item">
-                          <CheckCircle2 size={14} />
-                          <div>
-                            <strong>{event.label}</strong>
-                            <p>{event.detail}</p>
-                            <small>{new Date(event.createdAt).toLocaleTimeString()}</small>
-                          </div>
-                        </div>
-                      ))}
+                      {activeTasks.length === 0 && activeTimeline.length === 0 ? (
+                        <p className="timeline-empty">No open tasks yet. Agent activity will appear here.</p>
+                      ) : (
+                        <>
+                          {activeTasks.map((task) => (
+                            <div key={task.id} className="timeline-event-item task-item">
+                              <ClipboardCheck size={14} />
+                              <div>
+                                <strong>{task.type.replace('_', ' ')} - {task.status.replace('_', ' ')}</strong>
+                                <p>{task.note}</p>
+                                <small>Due: {new Date(task.dueAt).toLocaleTimeString()}</small>
+                              </div>
+                            </div>
+                          ))}
+                          {activeTimeline.map((event) => (
+                            <div key={event.id} className="timeline-event-item">
+                              <CheckCircle2 size={14} />
+                              <div>
+                                <strong>{event.label}</strong>
+                                <p>{event.detail}</p>
+                                <small>{new Date(event.createdAt).toLocaleTimeString()}</small>
+                              </div>
+                            </div>
+                          ))}
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
 
                 {/* Conversation thread */}
                 <div className="chat-thread-section">
-                  <span>Conversation Thread</span>
+                  <div className="section-label-row">
+                    <span>Conversation Thread</span>
+                    <small>{activeMessages.length} {activeMessages.length === 1 ? 'message' : 'messages'}</small>
+                  </div>
                   <div className="chat-history">
                     {activeMessages.length ? activeMessages.slice().reverse().map((message) => (
                       <div key={message.id} className={`chat-message ${message.direction} ${message.status}`}>
@@ -609,6 +637,7 @@ export default function App() {
                   <button
                     className="advanced-toggle"
                     type="button"
+                    aria-expanded={showAdvanced}
                     onClick={() => setShowAdvanced(!showAdvanced)}
                   >
                     {showAdvanced ? 'Hide' : 'Show'} advanced controls
@@ -708,6 +737,14 @@ export default function App() {
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Create a Lead</h2>
+              <button
+                className="button secondary sm icon-btn"
+                type="button"
+                aria-label="Close lead form"
+                onClick={() => setShowNewLeadForm(false)}
+              >
+                <X size={16} />
+              </button>
             </div>
             <form onSubmit={createLead}>
               <div className="scrollable-form-fields">
@@ -741,7 +778,7 @@ export default function App() {
           <div className="drawer-content" onClick={(e) => e.stopPropagation()}>
             <div className="drawer-header">
               <h2>Settings</h2>
-              <button className="button secondary sm icon-btn" type="button" onClick={() => setShowSettings(false)}>
+              <button className="button secondary sm icon-btn" type="button" aria-label="Close settings" onClick={() => setShowSettings(false)}>
                 <X size={16} />
               </button>
             </div>
@@ -785,7 +822,7 @@ export default function App() {
                   aria-label="Inbox email"
                   value={inboxEmail}
                   onChange={(e) => setInboxEmail(e.target.value)}
-                  style={{ fontSize: '0.8rem', padding: '8px 10px', marginBottom: '8px' }}
+                  className="drawer-input"
                 />
                 <div className="email-actions">
                   <button className="button primary sm" type="button" onClick={connectDemoInbox}>Connect</button>
@@ -797,9 +834,9 @@ export default function App() {
                 {gmailStart && (
                   <div className={`gmail-summary ${gmailStart.status}`}>
                     <strong>{gmailStart.status === 'ready' ? 'Gmail OAuth ready' : 'Setup required'}</strong>
-                    <p style={{ margin: '2px 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{gmailStart.message}</p>
-                    <small style={{ display: 'block', fontSize: '0.65rem', color: '#64748b' }}>Scopes: {gmailStart.scopes.join(', ')}</small>
-                    {gmailStart.authUrl ? <a href={gmailStart.authUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: '4px' }}>Open consent screen</a> : null}
+                    <p className="gmail-message">{gmailStart.message}</p>
+                    <small className="gmail-scopes">Scopes: {gmailStart.scopes.join(', ')}</small>
+                    {gmailStart.authUrl ? <a href={gmailStart.authUrl} target="_blank" rel="noreferrer" className="gmail-link">Open consent screen</a> : null}
                   </div>
                 )}
                 {activeInbox ? (
@@ -818,19 +855,18 @@ export default function App() {
                 </div>
                 <p className="drawer-desc">This booking link is embedded in follow-up messages to leads.</p>
                 {state.config?.bookingLink && (
-                  <div className="calendar-link-wrapper" style={{ marginBottom: '8px' }}>
+                  <div className="calendar-link-wrapper">
                     <a href={state.config.bookingLink} target="_blank" rel="noreferrer" className="calendar-link">
                       {state.config.bookingLink}
                     </a>
                   </div>
                 )}
-                <div style={{ display: 'flex', gap: '6px' }}>
+                <div className="settings-row">
                   <input
                     aria-label="Booking link"
                     value={bookingLink}
                     onChange={(e) => setBookingLink(e.target.value)}
                     placeholder="https://cal.com/your-link"
-                    style={{ fontSize: '0.8rem', padding: '8px 10px', flex: 1 }}
                   />
                   <button className="button primary sm" type="button" onClick={saveBookingLink}>Save</button>
                 </div>
@@ -844,28 +880,27 @@ export default function App() {
                 </div>
                 <p className="drawer-desc">Add a Gemini API key to enable AI-powered lead scoring and conversational follow-up drafting. Without it, the agent uses rules-based logic.</p>
                 {state.config?.geminiApiKeyConfigured ? (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0' }}>
-                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#4ade80' }}>
+                  <div className="settings-save-row">
+                    <span className="status-live">
                       Live Gemini AI (configured server-side)
                     </span>
                   </div>
                 ) : (
                   <>
-                    <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+                    <div className="settings-row">
                       <input
                         type={showApiKey ? 'text' : 'password'}
                         placeholder="Enter Gemini API Key"
                         aria-label="Gemini API Key"
                         value={geminiApiKey}
                         onChange={(e) => setGeminiApiKey(e.target.value)}
-                        style={{ fontSize: '0.8rem', padding: '8px 10px', flex: 1 }}
                       />
-                      <button className="button secondary sm" type="button" style={{ padding: '4px 10px' }} onClick={() => setShowApiKey(!showApiKey)}>
+                      <button className="button secondary sm compact" type="button" onClick={() => setShowApiKey(!showApiKey)}>
                         {showApiKey ? 'Hide' : 'Show'}
                       </button>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#f59e0b' }}>
+                    <div className="settings-save-row">
+                      <span className="status-fallback">
                         Rules Fallback
                       </span>
                       <button className="button primary sm" type="button" onClick={saveGeminiKey}>Save</button>
@@ -884,9 +919,8 @@ export default function App() {
                 <div className="webhook-url-box">
                   <code>{window.location.protocol}//{window.location.hostname}:8787/api/webhooks/lead</code>
                   <button
-                    className="button secondary sm"
+                    className="button secondary sm compact"
                     type="button"
-                    style={{ padding: '4px 8px', fontSize: '0.65rem', flexShrink: 0 }}
                     onClick={() => {
                       navigator.clipboard.writeText(`${window.location.protocol}//${window.location.hostname}:8787/api/webhooks/lead`);
                       alert('Webhook URL copied.');
@@ -895,9 +929,9 @@ export default function App() {
                     Copy
                   </button>
                 </div>
-                <details style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '8px' }}>
-                  <summary style={{ cursor: 'pointer', color: '#38bdf8' }}>Payload schema</summary>
-                  <pre style={{ background: 'var(--bg-darkest)', padding: '8px', borderRadius: '4px', marginTop: '4px', overflowX: 'auto', fontSize: '0.6rem', color: '#94a3b8' }}>
+                <details className="schema-details">
+                  <summary>Payload schema</summary>
+                  <pre>
 {`{
   "name": "Jane Doe",
   "company": "Doe Corp",
