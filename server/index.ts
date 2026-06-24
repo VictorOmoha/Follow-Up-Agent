@@ -6,7 +6,7 @@ import { buildGmailOAuthStartFromEnv } from './gmail-oauth';
 import { loadStateFromFirestore, saveStateToFirestore } from './db';
 import { toPublicAgentState, toPublicInbox } from './public-state';
 import { extractLeadFromText } from './gemini';
-import { checkAuth, checkWebhookAuth, isAuthEnabled } from './auth';
+import { checkAuth, checkWebhookAuth } from './auth';
 import { createRateLimiter } from './rate-limiter';
 
 // Load .env file programmatically (built-in Node 20.12+)
