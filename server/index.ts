@@ -414,13 +414,34 @@ async function start() {
         }
 
         const rawBody = await readJson(request);
-        const bodyText = typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody, null, 2);
+        // If the body is a JSON object with only a message/text/body field,
+        // pass that field's content directly to the extractor for free-text parsing
+        let bodyText: string;
+        const subjectHint: string | undefined = 'CRM Webhook Intake';
+        if (typeof rawBody === 'object' && rawBody !== null) {
+          const obj = rawBody as Record<string, unknown>;
+          // Check if it has standard lead fields
+          const hasStandardFields = ['name', 'fullName', 'firstName', 'company', 'org', 'organization',
+            'service', 'requestedService', 'interest', 'budget', 'budgetAmount', 'value',
+            'urgency', 'timeframe', 'timeline', 'channel', 'preferredChannel', 'contact', 'email', 'phone'].some(key => {
+            const v = obj[key];
+            return v !== undefined && v !== null && String(v).trim();
+          });
+          if (!hasStandardFields) {
+            // Only has message/text/body - use that as free text
+            bodyText = String(obj.message || obj.body || obj.text || obj.content || obj.description || JSON.stringify(rawBody, null, 2));
+          } else {
+            bodyText = JSON.stringify(rawBody, null, 2);
+          }
+        } else {
+          bodyText = typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody, null, 2);
+        }
 
         const stateBefore = engine.getState();
         const apiKey = stateBefore.config?.geminiApiKey;
 
         // Use AI lead extraction with robust rules fallback inside extractLeadFromText
-        const leadInput = await extractLeadFromText(bodyText, 'CRM Webhook Intake', undefined, apiKey);
+        const leadInput = await extractLeadFromText(bodyText, subjectHint, undefined, apiKey);
         
         // If we ran in fallback mode (or if AI failed/returned default values), let's ensure we try to map common CRM keys from JSON
         if (typeof rawBody === 'object' && rawBody !== null) {
@@ -543,7 +564,8 @@ async function start() {
 
       sendJson(response, 404, { error: 'Not found' });
     } catch (error) {
-      sendJson(response, 500, { error: error instanceof Error ? error.message : 'Unknown server error' });
+      const statusCode = typeof error === 'object' && error !== null && 'statusCode' in error && typeof (error as { statusCode?: unknown }).statusCode === 'number' ? (error as { statusCode: number }).statusCode : 500;
+      sendJson(response, statusCode, { error: error instanceof Error ? error.message : 'Unknown server error' });
     }
   });
 

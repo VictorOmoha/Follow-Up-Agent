@@ -8,6 +8,7 @@
     "dev:web": "vite --host 0.0.0.0",
     "dev:api": "tsx watch server/index.ts",
     "build": "tsc -b && vite build",
+    "build:functions": "cd functions && npx tsc",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest"

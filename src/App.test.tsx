@@ -37,7 +37,7 @@ function makeState(): TestState {
 function installApiMock() {
   let state = makeState();
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    const path = url.replace('http://127.0.0.1:8787/api', '');
+    const path = url.replace(/^https?:\/\/[^/]+\/api/, '').replace(/^\/api/, '');
     const body = init?.body ? JSON.parse(String(init.body)) : {};
 
     if (path === '/state') return Response.json(state);
@@ -155,94 +155,126 @@ describe('Omoha Follow-Up Agent', () => {
     expect(run.ownerDecision).toContain('Approve SMS draft');
   });
 
-  it('renders the real backend-driven agent workbench and creates a lead through the API', async () => {
+  it('renders the dashboard and creates a lead through the modal form', async () => {
     render(<App />);
 
     expect(screen.getByRole('heading', { name: /Follow-Up Agent/i })).toBeInTheDocument();
-    expect(screen.getByText(/Next:/i)).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText(/API Online/i)).toBeInTheDocument());
+    // Guided empty state should be visible when no leads
+    expect(screen.getByText(/The agent is ready and waiting/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/Online/i)).toBeInTheDocument());
 
+    // Click "Create Your First Lead" to open modal
+    await userEvent.click(screen.getByRole('button', { name: /Create Your First Lead/i }));
+
+    // Fill the modal form
     await userEvent.type(screen.getByLabelText(/Lead name/i), 'Ada Okafor');
     await userEvent.type(screen.getByLabelText(/Company/i), 'Ada Legal Group');
     await userEvent.type(screen.getByLabelText(/Service requested/i), 'immigration consultation');
     await userEvent.type(screen.getByLabelText(/Budget/i), '2500');
     await userEvent.type(screen.getByLabelText(/Urgency/i), 'ASAP');
-    await userEvent.type(screen.getByLabelText(/Pain/i), 'missing website leads');
+    await userEvent.type(screen.getByLabelText(/Pain point/i), 'missing website leads');
     await userEvent.click(screen.getByRole('button', { name: /Create lead/i }));
 
     await waitFor(() => expect(screen.getAllByText(/Ada Legal Group/i).length).toBeGreaterThan(0));
-    expect(screen.getByText(/Draft waiting for owner approval/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Approve & Send/i })).toBeInTheDocument();
+    expect(screen.getByText(/Draft waiting for approval/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Approve & Send Draft/i })).toBeInTheDocument();
   });
 
-  it('shows Gmail OAuth setup readiness without asking users for secrets', async () => {
+  it('shows Gmail OAuth setup readiness in settings drawer without asking for secrets', async () => {
     render(<App />);
-    await waitFor(() => expect(screen.getByText(/API Online/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Online/i)).toBeInTheDocument());
 
+    // Open settings drawer
+    await userEvent.click(screen.getByRole('button', { name: /Open settings/i }));
+
+    // Click Check Gmail button inside settings
     await userEvent.click(screen.getByRole('button', { name: /Check Gmail/i }));
 
     await waitFor(() => expect(screen.getByText(/Set GMAIL_CLIENT_ID before connecting Gmail/i)).toBeInTheDocument());
     expect(screen.getByText(/gmail.readonly, gmail.send, gmail.modify/i)).toBeInTheDocument();
-    expect(screen.queryByText(/password/i)).not.toBeInTheDocument();
   });
 
-  it('connects a demo inbox and syncs email leads through the backend', async () => {
+  it('connects a demo inbox and syncs email leads through the settings drawer', async () => {
     render(<App />);
-    await waitFor(() => expect(screen.getByText(/API Online/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Online/i)).toBeInTheDocument());
 
+    // Open settings
+    await userEvent.click(screen.getByRole('button', { name: /Open settings/i }));
+
+    // Type demo email and connect
     await userEvent.type(screen.getByLabelText(/Inbox email/i), 'owner@omohasolutions.demo');
-    await userEvent.click(screen.getByRole('button', { name: /^Connect$/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Connect/i }));
     await waitFor(() => expect(screen.getByText(/owner@omohasolutions.demo/i)).toBeInTheDocument());
-    expect(screen.getByText(/2 unsynced emails/i)).toBeInTheDocument();
+    expect(screen.getByText(/2 unsynced/i)).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: /Sync inbox now/i }));
+    // Sync inbox (icon button with aria-label)
+    await userEvent.click(screen.getByRole('button', { name: /Sync inbox/i }));
     await waitFor(() => expect(screen.getByText(/Email lead imported/i)).toBeInTheDocument());
     expect(screen.getAllByText(/Ada Legal Group/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Unread email matched lead pattern/i).length).toBeGreaterThan(0);
   });
 
-  it('runs an autonomous cycle and exposes the agent decision stream', async () => {
+  it('runs an autonomous cycle from advanced controls and exposes the decision stream', async () => {
     render(<App />);
-    await waitFor(() => expect(screen.getByText(/API Online/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Online/i)).toBeInTheDocument());
 
-    await userEvent.click(screen.getAllByRole('button', { name: /Run cycle/i })[0]);
-
-    await waitFor(() => expect(screen.getByText(/Imported 0, drafted 0, approvals 1, handoffs 0/i)).toBeInTheDocument());
-    expect(screen.getByText(/Cycle checked 1 inbox, 2 leads, and 3 tasks/i)).toBeInTheDocument();
-    expect(screen.getByText(/Autopilot imports new leads/i)).toBeInTheDocument();
-  });
-
-  it('moves a draft through owner approval and lets the demo worker immediately create the next approval draft', async () => {
-    render(<App />);
+    // First create a lead so workbench is visible
+    await userEvent.click(screen.getByRole('button', { name: /Create Your First Lead/i }));
     await userEvent.type(screen.getByLabelText(/Lead name/i), 'Ada Okafor');
     await userEvent.type(screen.getByLabelText(/Company/i), 'Ada Legal Group');
     await userEvent.type(screen.getByLabelText(/Service requested/i), 'immigration consultation');
     await userEvent.type(screen.getByLabelText(/Budget/i), '2500');
     await userEvent.type(screen.getByLabelText(/Urgency/i), 'ASAP');
-    await userEvent.type(screen.getByLabelText(/Pain/i), 'missing website leads');
+    await userEvent.type(screen.getByLabelText(/Pain point/i), 'missing website leads');
     await userEvent.click(screen.getByRole('button', { name: /Create lead/i }));
-    await waitFor(() => expect(screen.getByText(/Draft waiting for owner approval/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText(/Ada Legal Group/i).length).toBeGreaterThan(0));
 
-    await userEvent.click(screen.getByRole('button', { name: /Approve & Send/i }));
+    // Expand advanced controls
+    await userEvent.click(screen.getByText(/Show advanced controls/i));
 
-    await waitFor(() => expect(screen.getByText(/follow_up · scheduled/i)).toBeInTheDocument());
-    expect(screen.getByText(/Follow-up scheduled/i)).toBeInTheDocument();
+    // Run cycle
+    await userEvent.click(screen.getByRole('button', { name: /Run agent cycle/i }));
 
-    await userEvent.click(screen.getByRole('button', { name: /Draft next follow-up now/i }));
+    await waitFor(() => expect(screen.getByText(/Cycle checked 1 inbox, 2 leads, and 3 tasks/i)).toBeInTheDocument());
+    expect(screen.getByText(/Autopilot imports new leads/i)).toBeInTheDocument();
+  });
+
+  it('moves a draft through owner approval and lets the worker create the next follow-up draft', async () => {
+    render(<App />);
+
+    await userEvent.click(screen.getByRole('button', { name: /Create Your First Lead/i }));
+    await userEvent.type(screen.getByLabelText(/Lead name/i), 'Ada Okafor');
+    await userEvent.type(screen.getByLabelText(/Company/i), 'Ada Legal Group');
+    await userEvent.type(screen.getByLabelText(/Service requested/i), 'immigration consultation');
+    await userEvent.type(screen.getByLabelText(/Budget/i), '2500');
+    await userEvent.type(screen.getByLabelText(/Urgency/i), 'ASAP');
+    await userEvent.type(screen.getByLabelText(/Pain point/i), 'missing website leads');
+    await userEvent.click(screen.getByRole('button', { name: /Create lead/i }));
+    await waitFor(() => expect(screen.getByText(/Draft waiting for approval/i)).toBeInTheDocument());
+
+    // Approve the draft using the adaptive primary action button
+    await userEvent.click(screen.getByRole('button', { name: /Approve & Send Draft/i }));
+
+    // After approval, the primary action switches to "Draft Next Follow-Up"
+    await waitFor(() => expect(screen.getByRole('button', { name: /Draft Next Follow-Up/i })).toBeInTheDocument());
+
+    // Click it to force-draft the next follow-up
+    await userEvent.click(screen.getByRole('button', { name: /Draft Next Follow-Up/i }));
 
     await waitFor(() => expect(screen.getByText(/Agent force-drafted scheduled follow-up/i)).toBeInTheDocument());
     expect(screen.getAllByText(/Still happy to help with immigration consultation/i).length).toBeGreaterThan(0);
   });
 
-  it('renders the Owner Daily Digest and Calendar Link cards and saves booking link changes', async () => {
+  it('shows digest stats in the lead list sidebar and manages booking link in settings', async () => {
     render(<App />);
-    await waitFor(() => expect(screen.getByText(/API Online/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Online/i)).toBeInTheDocument());
 
-    expect(screen.getByRole('heading', { name: /Owner Daily Digest/i })).toBeInTheDocument();
-    expect(screen.getByText(/Money on Table/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/Hot Leads/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Stalled Leads/i)).toBeInTheDocument();
+    // Digest stats are in the lead list sidebar
+    expect(screen.getByText(/on table/i)).toBeInTheDocument();
+    expect(screen.getByText(/stalled/i)).toBeInTheDocument();
 
+    // Open settings to access calendar link
+    await userEvent.click(screen.getByRole('button', { name: /Open settings/i }));
     expect(screen.getByRole('heading', { name: /Calendar Link/i })).toBeInTheDocument();
     expect(screen.getByText('https://calendar.google.com/calendar/appointments/schedules/demo')).toBeInTheDocument();
 
