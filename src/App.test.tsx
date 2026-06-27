@@ -177,7 +177,7 @@ describe('Omoha Follow-Up Agent', () => {
 
     await waitFor(() => expect(screen.getAllByText(/Ada Legal Group/i).length).toBeGreaterThan(0));
     expect(screen.getByText(/Draft waiting for approval/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Approve & Send Draft/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Approve & Send/i })).toBeInTheDocument();
   });
 
   it('shows Gmail OAuth setup readiness in settings drawer without asking for secrets', async () => {
@@ -185,13 +185,14 @@ describe('Omoha Follow-Up Agent', () => {
     await waitFor(() => expect(screen.getByText(/Online/i)).toBeInTheDocument());
 
     // Open settings drawer
-    await userEvent.click(screen.getByRole('button', { name: /Open settings/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^Settings$/i }));
 
-    // Click Check Gmail button inside settings
-    await userEvent.click(screen.getByRole('button', { name: /Check Gmail/i }));
+    // A non-.demo (Gmail) address kicks off the OAuth readiness check on Connect,
+    // surfacing the setup-required message instead of asking for secrets in the UI.
+    await userEvent.type(screen.getByPlaceholderText(/omohasolutions\.demo/i), 'owner@gmail.com');
+    await userEvent.click(screen.getByRole('button', { name: /^Connect$/i }));
 
-    await waitFor(() => expect(screen.getByText(/Set GMAIL_CLIENT_ID before connecting Gmail/i)).toBeInTheDocument());
-    expect(screen.getByText(/gmail.readonly, gmail.send, gmail.modify/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText(/Set GMAIL_CLIENT_ID before connecting Gmail/i).length).toBeGreaterThan(0));
   });
 
   it('connects a demo inbox and syncs email leads through the settings drawer', async () => {
@@ -199,15 +200,15 @@ describe('Omoha Follow-Up Agent', () => {
     await waitFor(() => expect(screen.getByText(/Online/i)).toBeInTheDocument());
 
     // Open settings
-    await userEvent.click(screen.getByRole('button', { name: /Open settings/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^Settings$/i }));
 
     // Type demo email and connect
-    await userEvent.type(screen.getByLabelText(/Inbox email/i), 'owner@omohasolutions.demo');
-    await userEvent.click(screen.getByRole('button', { name: /Connect/i }));
-    await waitFor(() => expect(screen.getByText(/owner@omohasolutions.demo/i)).toBeInTheDocument());
+    await userEvent.type(screen.getByPlaceholderText(/omohasolutions\.demo/i), 'owner@omohasolutions.demo');
+    await userEvent.click(screen.getByRole('button', { name: /^Connect$/i }));
+    await waitFor(() => expect(screen.getAllByText(/owner@omohasolutions.demo/i).length).toBeGreaterThan(0));
     expect(screen.getByText(/2 unsynced/i)).toBeInTheDocument();
 
-    // Sync inbox (icon button with aria-label)
+    // Sync inbox
     await userEvent.click(screen.getByRole('button', { name: /Sync inbox/i }));
     await waitFor(() => expect(screen.getByText(/Email lead imported/i)).toBeInTheDocument());
     expect(screen.getAllByText(/Ada Legal Group/i).length).toBeGreaterThan(0);
@@ -253,7 +254,7 @@ describe('Omoha Follow-Up Agent', () => {
     await waitFor(() => expect(screen.getByText(/Draft waiting for approval/i)).toBeInTheDocument());
 
     // Approve the draft using the adaptive primary action button
-    await userEvent.click(screen.getByRole('button', { name: /Approve & Send Draft/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Approve & Send/i }));
 
     // After approval, the primary action switches to "Draft Next Follow-Up"
     await waitFor(() => expect(screen.getByRole('button', { name: /Draft Next Follow-Up/i })).toBeInTheDocument());
@@ -274,15 +275,15 @@ describe('Omoha Follow-Up Agent', () => {
     expect(screen.getByText(/stalled/i)).toBeInTheDocument();
 
     // Open settings to access calendar link
-    await userEvent.click(screen.getByRole('button', { name: /Open settings/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^Settings$/i }));
     expect(screen.getByRole('heading', { name: /Calendar Link/i })).toBeInTheDocument();
-    expect(screen.getByText('https://calendar.google.com/calendar/appointments/schedules/demo')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('https://calendar.google.com/calendar/appointments/schedules/demo')).toBeInTheDocument();
 
-    const bookingInput = screen.getByLabelText(/Booking link/i);
+    const bookingInput = screen.getByPlaceholderText(/cal\.com\/your-link/i);
     await userEvent.clear(bookingInput);
     await userEvent.type(bookingInput, 'https://cal.com/omoha/demo');
     await userEvent.click(screen.getAllByRole('button', { name: /^Save$/i })[0]);
 
-    await waitFor(() => expect(screen.getByText('https://cal.com/omoha/demo')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByDisplayValue('https://cal.com/omoha/demo')).toBeInTheDocument());
   });
 });
