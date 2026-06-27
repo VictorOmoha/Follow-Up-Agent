@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Bot, Brain, CalendarCheck, CheckCircle2, CircleDollarSign, ClipboardCheck, Clock,
   Flame, Link, MessageSquareReply, Moon, PhoneCall, Play, RefreshCw, Send,
@@ -182,7 +182,7 @@ export default function App() {
     localStorage.setItem('theme', theme);
   }, [theme]);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     try {
       setError('');
       const nextState = await api<AgentState>('/state');
@@ -202,7 +202,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [selectedLeadId]);
 
   useEffect(() => {
     const initial = window.setTimeout(() => void refresh(), 0);
@@ -211,7 +211,7 @@ export default function App() {
       window.clearTimeout(initial);
       window.clearInterval(timer);
     };
-  }, [selectedLeadId]);
+  }, [refresh]);
 
   const selectedLead = state.leads.find((l) => l.id === selectedLeadId) ?? null;
   const activeInbox = state.inboxes[0];
@@ -226,8 +226,9 @@ export default function App() {
   const draft = activeMessages.find((m) => m.direction === 'outbound' && m.status === 'draft');
   const scheduledFollowUp = activeTasks.find((t) => t.type === 'follow_up' && t.status === 'scheduled');
 
-  // Adaptive primary action: one button that changes based on state
-  const primaryAction = useMemo(() => {
+  // Adaptive primary action: one button that changes based on state.
+  // This is cheap to derive each render; keeping it out of useMemo avoids stale callback/dependency churn.
+  const primaryAction = (() => {
     if (draft) {
       return {
         label: 'Approve & Send Draft',
@@ -271,7 +272,7 @@ export default function App() {
       disabled: false,
       variant: 'primary' as const,
     };
-  }, [draft, scheduledFollowUp, selectedLead, state.leads.length]);
+  })();
 
   const stats = useMemo(() => {
     const waitingApproval = state.tasks.filter((t) => t.status === 'waiting_approval').length;
