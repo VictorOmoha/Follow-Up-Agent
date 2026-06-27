@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+functions/lib/
 
 # Environment files (incl. Firebase Functions .env.<projectId> which holds secrets)
 .env
