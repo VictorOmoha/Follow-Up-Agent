@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   Bot, CalendarCheck, CheckCircle2, Clock, DollarSign, Flame, Inbox, Link2,
-  Phone, Plus, Reply, Send, Settings, Sparkles, ClipboardList, X, Zap,
+  Phone, Plus, Reply, Send, Settings, Sparkles, ClipboardList, Trash2, X, Zap,
 } from 'lucide-react';
 import { type LeadInput, scoreLead } from './lib/agent';
 import './styles.css';
@@ -227,6 +227,14 @@ export default function App() {
   const webhookUrl = `${window.location.origin}/api/webhooks/lead`;
   function copyWebhook() { try { void navigator.clipboard.writeText(webhookUrl); } catch { /* ignore */ } showToast('Webhook URL copied'); }
   async function reset() { await api('/reset', { method: 'POST' }); setSelectedLeadId(null); setShowSettings(false); await refresh(); showToast('All data cleared'); }
+  async function deleteLead(id: string) {
+    const target = state.leads.find((l) => l.id === id);
+    if (!window.confirm(`Delete ${target?.name || 'this lead'} and all its messages, tasks, and history? This can't be undone.`)) return;
+    await api(`/leads/${id}/delete`, { method: 'POST' });
+    setSelectedLeadId(null);
+    await refresh();
+    showToast('Lead deleted');
+  }
 
   const autopilot = !!state.config?.autopilotEnabled;
   const geminiConfigured = !!state.config?.geminiApiKeyConfigured;
@@ -305,9 +313,12 @@ export default function App() {
           {selectedLead ? (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', padding: 16 }}>
               <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, padding: '11px 13px', marginBottom: 10, flexShrink: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-                  <span style={badgeStyle(selectedLead.status)}>{selectedLead.status.replace(/_/g, ' ')}</span>
-                  <strong style={{ fontSize: '.96rem', color: '#fff' }}>{selectedLead.name} · {selectedLead.company}</strong>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                    <span style={badgeStyle(selectedLead.status)}>{selectedLead.status.replace(/_/g, ' ')}</span>
+                    <strong style={{ fontSize: '.96rem', color: '#fff' }}>{selectedLead.name} · {selectedLead.company}</strong>
+                  </div>
+                  <button onClick={() => deleteLead(selectedLead.id)} type="button" aria-label="Delete lead" title="Delete lead" style={{ background: 'rgba(239,68,68,.08)', color: '#fca5a5', border: '1px solid rgba(239,68,68,.18)', borderRadius: 7, padding: 6, cursor: 'pointer', display: 'inline-flex', flexShrink: 0 }}><Trash2 size={14} /></button>
                 </div>
                 <p style={{ margin: '4px 0 0 0', fontSize: '.79rem', color: C.dim }}>{selectedSummary}</p>
               </div>

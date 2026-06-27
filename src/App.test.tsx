@@ -113,6 +113,17 @@ function installApiMock() {
       return Response.json(state);
     }
     if (path === '/reset') { state = makeState(); return Response.json(state); }
+    if (path === '/leads/lead_1/delete') {
+      state = {
+        ...state,
+        leads: state.leads.filter((l) => l.id !== 'lead_1'),
+        messages: state.messages.filter((m) => m.leadId !== 'lead_1'),
+        tasks: state.tasks.filter((t) => t.leadId !== 'lead_1'),
+        timeline: state.timeline.filter((e) => e.leadId !== 'lead_1'),
+        decisions: state.decisions.filter((d) => d.leadId !== 'lead_1'),
+      };
+      return Response.json({ deleted: 'lead_1' });
+    }
     if (path === '/leads/lead_1/replies') {
       state.leads[0].status = 'needs_human';
       state.messages.unshift({ id: 'msg_2', leadId: 'lead_1', direction: 'inbound', status: 'received', body: body.body, createdAt: '2026-05-17T20:01:00Z' });
@@ -264,6 +275,27 @@ describe('Omoha Follow-Up Agent', () => {
 
     await waitFor(() => expect(screen.getByText(/Agent force-drafted scheduled follow-up/i)).toBeInTheDocument());
     expect(screen.getAllByText(/Still happy to help with immigration consultation/i).length).toBeGreaterThan(0);
+  });
+
+  it('deletes a lead and its history from the workbench', async () => {
+    vi.stubGlobal('confirm', () => true);
+    render(<App />);
+
+    await userEvent.click(screen.getByRole('button', { name: /Create Your First Lead/i }));
+    await userEvent.type(screen.getByLabelText(/Lead name/i), 'Ada Okafor');
+    await userEvent.type(screen.getByLabelText(/Company/i), 'Ada Legal Group');
+    await userEvent.type(screen.getByLabelText(/Service requested/i), 'immigration consultation');
+    await userEvent.type(screen.getByLabelText(/Budget/i), '2500');
+    await userEvent.type(screen.getByLabelText(/Urgency/i), 'ASAP');
+    await userEvent.type(screen.getByLabelText(/Pain point/i), 'missing website leads');
+    await userEvent.click(screen.getByRole('button', { name: /Create lead/i }));
+    await waitFor(() => expect(screen.getByText(/Draft waiting for approval/i)).toBeInTheDocument());
+
+    // Delete the selected lead from its header
+    await userEvent.click(screen.getByRole('button', { name: /Delete lead/i }));
+
+    // Back to the empty state once the only lead is gone
+    await waitFor(() => expect(screen.getByText(/The agent is ready and waiting/i)).toBeInTheDocument());
   });
 
   it('shows digest stats in the lead list sidebar and manages booking link in settings', async () => {

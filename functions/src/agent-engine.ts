@@ -810,6 +810,27 @@ export function createAgentEngine(options: EngineOptions = {}) {
     commit();
   }
 
+  async function deleteLead(leadId: string) {
+    return lock.run(() => deleteLeadInner(leadId));
+  }
+
+  async function deleteLeadInner(leadId: string) {
+    const lead = state.leads.find((item) => item.id === leadId);
+    if (!lead) { const e = new Error(`Lead not found: ${leadId}`); (e as any).statusCode = 404; throw e; }
+
+    // Cascade: remove the lead and everything that references it. Source emails
+    // are dropped too so a deleted lead is not re-imported on the next sync.
+    state.leads = state.leads.filter((item) => item.id !== leadId);
+    state.messages = state.messages.filter((item) => item.leadId !== leadId);
+    state.tasks = state.tasks.filter((item) => item.leadId !== leadId);
+    state.timeline = state.timeline.filter((item) => item.leadId !== leadId);
+    state.decisions = state.decisions.filter((item) => item.leadId !== leadId);
+    state.emailMessages = state.emailMessages.filter((item) => item.leadId !== leadId);
+
+    commit();
+    return { deleted: leadId };
+  }
+
   async function runAutonomousCycle() {
     const startedAt = now().toISOString();
     let imported = 0;
@@ -831,5 +852,5 @@ export function createAgentEngine(options: EngineOptions = {}) {
     return { startedAt, imported, createdDrafts, waitingApproval, needsHuman };
   }
 
-  return { createLead, approveMessage, runDueTasks, runAutonomousCycle, connectEmailInbox, syncEmailInbox, recordReply, getState, reset };
+  return { createLead, approveMessage, runDueTasks, runAutonomousCycle, connectEmailInbox, syncEmailInbox, recordReply, deleteLead, getState, reset };
 }

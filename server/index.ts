@@ -526,6 +526,13 @@ async function start() {
         return;
       }
 
+      const deleteLeadMatch = match(url.pathname, /^\/api\/leads\/([^/]+)\/delete$/);
+      if (request.method === 'POST' && deleteLeadMatch) {
+        const result = await engine.deleteLead(deleteLeadMatch[1]);
+        sendJson(response, 200, result);
+        return;
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/worker/run') {
         const body = await readJson(request) as { force?: boolean };
         const result = await engine.runDueTasks({ force: Boolean(body.force) });

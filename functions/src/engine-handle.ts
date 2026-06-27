@@ -27,6 +27,7 @@ export interface EngineHandle {
   runAutonomousCycle: Engine['runAutonomousCycle'];
   syncEmailInbox: Engine['syncEmailInbox'];
   recordReply: Engine['recordReply'];
+  deleteLead: Engine['deleteLead'];
   getState: Engine['getState'];
   connectEmailInbox: (input: Parameters<Engine['connectEmailInbox']>[0]) => Promise<ReturnType<Engine['connectEmailInbox']>>;
   reset: (state?: Parameters<Engine['reset']>[0]) => Promise<void>;
@@ -62,6 +63,7 @@ export async function createEngineHandle(opts: EngineHandleOptions = {}): Promis
       runAutonomousCycle: () => engine.runAutonomousCycle(),
       syncEmailInbox: (id) => engine.syncEmailInbox(id),
       recordReply: (id, body) => engine.recordReply(id, body),
+      deleteLead: (id) => engine.deleteLead(id),
       connectEmailInbox: async (input) => engine.connectEmailInbox(input),
       reset: async (state) => { engine.reset(state); },
       getState: () => engine.getState(),
@@ -95,6 +97,7 @@ export async function createEngineHandle(opts: EngineHandleOptions = {}): Promis
     runAutonomousCycle: () => runLocked((e) => e.runAutonomousCycle()),
     syncEmailInbox: (id) => runLocked((e) => e.syncEmailInbox(id)),
     recordReply: (id, body) => runLocked((e) => e.recordReply(id, body)),
+    deleteLead: (id) => runLocked((e) => e.deleteLead(id)),
     connectEmailInbox: (input) => runLocked((e) => e.connectEmailInbox(input)),
     reset: (state) => runLocked((e) => { e.reset(state); }),
     getState: () => structuredClone(cached),

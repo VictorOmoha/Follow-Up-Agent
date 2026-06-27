@@ -358,6 +358,12 @@ app.post('/api/leads/:leadId/replies', async (req, res) => {
   res.status(201).json(message);
 });
 
+// ─── POST /api/leads/:leadId/delete ──────────────────────────
+app.post('/api/leads/:leadId/delete', async (req, res) => {
+  const result = await getEngine().deleteLead(req.params.leadId);
+  res.json(result);
+});
+
 // ─── POST /api/worker/run ────────────────────────────────────
 app.post('/api/worker/run', async (req, res) => {
   const body = req.body as { force?: boolean };
