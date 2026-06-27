@@ -430,6 +430,7 @@ export default function App() {
         </div>
 
         <div className="header-status">
+          <a href="/demo-guide.html" className="button secondary sm" target="_blank" rel="noreferrer">Open demo guide</a>
           <button
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
             className="button secondary sm icon-btn"

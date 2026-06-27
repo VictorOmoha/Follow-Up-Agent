@@ -71,9 +71,24 @@ Example webhook payload:
   "timeframe": "this week",
   "message": "web leads are not answered quickly",
   "preferredChannel": "SMS",
-  "phone": "+15551234567"
+  "phone": "+155****4567"
 }
 ```
+
+## Shareable demo guide
+
+The shareable guide is bundled as a static asset at:
+
+- Local dev/build path: `/demo-guide.html`
+- Source file in repo: `public/demo-guide.html`
+
+After deployment, share the production URL as:
+
+```text
+https://YOUR_DEPLOYED_DOMAIN/demo-guide.html
+```
+
+The main app also links to it from the header as "Open demo guide".
 
 ## Optional environment variables
 
