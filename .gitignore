@@ -4,10 +4,13 @@ node_modules/
 # Build output
 dist/
 
-# Environment files
+# Environment files (incl. Firebase Functions .env.<projectId> which holds secrets)
 .env
 .env.local
-.env.*.local
+.env.*
+!.env.example
+functions/.env
+functions/.env.*
 
 # Secrets / service account keys — NEVER commit
 .firebase-service-account.json

@@ -1,24 +1,15 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
-import { defineString } from 'firebase-functions/params';
 import { app, enginePromise, getEngineForScheduler } from './index.js';
 
-// Define configurable environment parameters
-const geminiApiKey = defineString('GEMINI_API_KEY', { default: '' });
-const twilioAccountSid = defineString('TWILIO_ACCOUNT_SID', { default: '' });
-const twilioAuthToken = defineString('TWILIO_AUTH_TOKEN', { default: '' });
-const twilioPhoneNumber = defineString('TWILIO_PHONE_NUMBER', { default: '' });
-const gmailClientId = defineString('GMAIL_CLIENT_ID', { default: '' });
-const gmailClientSecret = defineString('GMAIL_CLIENT_SECRET', { default: '' });
-const gmailRedirectUri = defineString('GMAIL_REDIRECT_URI', { default: '' });
-const agentApiKey = defineString('AGENT_API_KEY', { default: '' });
-const webhookApiKey = defineString('WEBHOOK_API_KEY', { default: '' });
-const bookingLink = defineString('BOOKING_LINK', { default: '' });
-const ownerBookingLink = defineString('OWNER_BOOKING_LINK', { default: '' });
-
-const allSecrets = [geminiApiKey, twilioAccountSid, twilioAuthToken, twilioPhoneNumber,
-  gmailClientId, gmailClientSecret, gmailRedirectUri,
-  agentApiKey, webhookApiKey, bookingLink, ownerBookingLink];
+// Configuration (GEMINI_API_KEY, TWILIO_*, GMAIL_*, BOOKING_LINK, etc.) is
+// loaded automatically by the Firebase CLI from functions/.env.<projectId> and
+// injected as environment variables — the code reads them via process.env.
+// We intentionally do NOT declare them under the `secrets:` option: they are
+// plain env params, and binding them as Secret Manager secrets would require the
+// Secret Manager API plus secret-create permissions. For stronger protection,
+// migrate the truly sensitive ones (Twilio auth token, Gmail secret) to
+// defineSecret()/Secret Manager once the deploy identity has those roles.
 
 // ─── API Cloud Function ──────────────────────────────────────
 // Serves the entire Express app as a single Cloud Function.
@@ -30,7 +21,6 @@ export const api = onRequest(
     timeoutSeconds: 60,
     minInstances: 0,
     maxInstances: 10,
-    secrets: allSecrets,
   },
   async (req, res) => {
     await enginePromise;
@@ -47,7 +37,6 @@ export const runDueTasks = onSchedule(
     region: 'us-central1',
     memory: '512MiB',
     timeoutSeconds: 120,
-    secrets: allSecrets,
   },
   async () => {
     await enginePromise;
@@ -70,7 +59,6 @@ export const syncInboxes = onSchedule(
     region: 'us-central1',
     memory: '512MiB',
     timeoutSeconds: 120,
-    secrets: allSecrets,
   },
   async () => {
     await enginePromise;

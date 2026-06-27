@@ -477,15 +477,9 @@ app.use((err: any, _req: Request, res: Response, _next: express.NextFunction) =>
   res.status(statusCode).json({ error: err instanceof Error ? err.message : 'Unknown server error' });
 });
 
-// ─── Local dev server (when not running as Cloud Function) ───
-const PORT = Number(process.env.AGENT_API_PORT || 8787);
-if (process.env.NODE_ENV !== 'production' && !process.env.FUNCTION_TARGET) {
-  enginePromise.then(() => {
-    app.listen(PORT, () => {
-      console.log(`Omoha Follow-Up Agent API running on http://127.0.0.1:${PORT}`);
-    });
-  }).catch(console.error);
-}
+// NOTE: This module is the Cloud Function codebase — it must NOT start its own
+// HTTP listener. (Doing so crashed `firebase deploy` source analysis with
+// EADDRINUSE.) Local development is served by server/index.ts instead.
 
 export function getEngineForScheduler() {
   return engine;
