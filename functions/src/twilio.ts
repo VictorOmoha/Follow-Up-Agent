@@ -8,7 +8,15 @@ export const hasTwilioConfig = !!(accountSid && authToken && twilioNumber);
 
 let client: ReturnType<typeof twilio> | null = null;
 if (hasTwilioConfig) {
-  client = twilio(accountSid, authToken);
+  try {
+    client = twilio(accountSid, authToken);
+  } catch (error) {
+    // A malformed TWILIO_ACCOUNT_SID (must start with "AC") makes the Twilio
+    // constructor throw. Never let a bad optional credential crash the whole
+    // function at startup — fall back to dry-run.
+    console.error('[TWILIO] Failed to initialize client; falling back to dry-run. Check TWILIO_ACCOUNT_SID (must start with "AC"):', error);
+    client = null;
+  }
 }
 
 /**

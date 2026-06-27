@@ -9,7 +9,12 @@ export const hasVoiceConfig = !!(accountSid && authToken && voiceFrom && twimlUr
 
 let client: ReturnType<typeof twilio> | null = null;
 if (hasVoiceConfig) {
-  client = twilio(accountSid, authToken);
+  try {
+    client = twilio(accountSid, authToken);
+  } catch (error) {
+    console.error('[VOICE] Failed to initialize Twilio client; falling back to dry-run:', error);
+    client = null;
+  }
 }
 
 /**
