@@ -446,8 +446,10 @@ export default function App() {
           >
             <Settings size={14} />
           </button>
-          <Bot size={16} />
-          <span className="api-status">{loading ? 'Connecting' : 'Online'}</span>
+          <span className="status-dot-wrapper">
+            <span className={`status-dot ${loading ? 'connecting' : 'online'}`} />
+            <span className="api-status">{loading ? 'Connecting' : 'Online'}</span>
+          </span>
         </div>
       </header>
 
