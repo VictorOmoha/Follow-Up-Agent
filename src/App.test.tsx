@@ -159,6 +159,7 @@ describe('Omoha Follow-Up Agent', () => {
     render(<App />);
 
     expect(screen.getByRole('heading', { name: /Follow-Up Agent/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open demo guide/i })).toHaveAttribute('href', '/demo-guide.html');
     // Guided empty state should be visible when no leads
     expect(screen.getByText(/The agent is ready and waiting/i)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText(/Online/i)).toBeInTheDocument());
