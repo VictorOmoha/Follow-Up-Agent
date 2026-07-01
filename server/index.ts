@@ -553,12 +553,13 @@ async function start() {
       }
 
       if (request.method === 'POST' && url.pathname === '/api/config') {
-        const body = await readJson(request) as { bookingLink?: string; autopilotEnabled?: boolean; geminiApiKey?: string };
+        const body = await readJson(request) as { bookingLink?: string; autopilotEnabled?: boolean; geminiApiKey?: string; gmailSyncQuery?: string };
         const state = engine.getState();
         if (state.config) {
           if (body.bookingLink !== undefined) state.config.bookingLink = body.bookingLink;
           if (body.autopilotEnabled !== undefined) state.config.autopilotEnabled = body.autopilotEnabled;
           if (body.geminiApiKey !== undefined) state.config.geminiApiKey = body.geminiApiKey;
+          if (body.gmailSyncQuery !== undefined) state.config.gmailSyncQuery = body.gmailSyncQuery;
         } else {
           state.config = {
             bookingLink: body.bookingLink || 'https://calendar.google.com/calendar/appointments/schedules/demo',

@@ -98,6 +98,9 @@ export type AgentState = {
     bookingLink: string;
     autopilotEnabled?: boolean;
     geminiApiKey?: string;
+    // Gmail search query used by inbox sync. Defaults to 'is:unread'; set to
+    // e.g. 'is:unread label:leads' to only import labeled intake mail.
+    gmailSyncQuery?: string;
   };
 };
 
@@ -600,6 +603,15 @@ export function createAgentEngine(options: EngineOptions = {}) {
     return structuredClone(inbox);
   }
 
+  // An inbound email from a contact we're already talking to is a reply,
+  // not a new lead — route it through reply analysis (booking/opt-out/draft)
+  // instead of the lead extractor.
+  function findLeadByEmail(sender: string) {
+    const normalized = (sender || '').toLowerCase().trim();
+    if (!normalized.includes('@')) return undefined;
+    return state.leads.find((l) => l.status !== 'closed' && (l.contact || '').toLowerCase().trim() === normalized);
+  }
+
   async function syncRealGmailInbox(inbox: ConnectedInbox, timestamp: string) {
     if (inbox.credentials && Date.now() >= inbox.credentials.expiresAt - 60000) {
       const clientId = process.env.GMAIL_CLIENT_ID;
@@ -630,7 +642,8 @@ export function createAgentEngine(options: EngineOptions = {}) {
     const accessToken = inbox.credentials?.accessToken;
     if (!accessToken) throw new Error('No access token available for Gmail sync');
 
-    const listRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?q=is:unread', {
+    const syncQuery = state.config?.gmailSyncQuery?.trim() || 'is:unread';
+    const listRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(syncQuery)}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!listRes.ok) {
@@ -688,23 +701,32 @@ export function createAgentEngine(options: EngineOptions = {}) {
         body: bodyText,
         receivedAt: new Date().toISOString(),
       };
-      const apiKey = state.config?.geminiApiKey;
-      const leadInput = await extractLeadFromText(emailRecord.body, emailRecord.subject, emailRecord.from, apiKey);
-      const run = await createLeadInner(leadInput);
-      emailRecord.importedAt = timestamp;
-      emailRecord.leadId = run.lead.id;
-      
-      state.emailMessages.unshift(emailRecord);
+      const existingLead = findLeadByEmail(emailRecord.from);
+      if (existingLead) {
+        await recordReplyInner(existingLead.id, emailRecord.body);
+        emailRecord.importedAt = timestamp;
+        emailRecord.leadId = existingLead.id;
+        state.emailMessages.unshift(emailRecord);
+        addTimeline(existingLead.id, 'Email reply imported', `${emailRecord.subject} from ${emailRecord.from}`);
+      } else {
+        const apiKey = state.config?.geminiApiKey;
+        const leadInput = await extractLeadFromText(emailRecord.body, emailRecord.subject, emailRecord.from, apiKey);
+        const run = await createLeadInner(leadInput);
+        emailRecord.importedAt = timestamp;
+        emailRecord.leadId = run.lead.id;
 
-      addTimeline(run.lead.id, 'Email lead imported', `${emailRecord.subject} from ${emailRecord.from}`);
-      addDecision({
-        leadId: run.lead.id,
-        type: 'inbox_sync',
-        observation: `Unread email matched lead pattern: ${emailRecord.subject} from ${emailRecord.from}.`,
-        reasoning: 'The email contains enough name/company/service/budget/urgency/pain fields to start a follow-up run.',
-        action: 'Imported the email into the lead pipeline and drafted the first response.',
-        confidence: 89,
-      });
+        state.emailMessages.unshift(emailRecord);
+
+        addTimeline(run.lead.id, 'Email lead imported', `${emailRecord.subject} from ${emailRecord.from}`);
+        addDecision({
+          leadId: run.lead.id,
+          type: 'inbox_sync',
+          observation: `Unread email matched lead pattern: ${emailRecord.subject} from ${emailRecord.from}.`,
+          reasoning: 'The email contains enough name/company/service/budget/urgency/pain fields to start a follow-up run.',
+          action: 'Imported the email into the lead pipeline and drafted the first response.',
+          confidence: 89,
+        });
+      }
 
       await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}/modify`, {
         method: 'POST',
@@ -741,6 +763,15 @@ export function createAgentEngine(options: EngineOptions = {}) {
     let imported = 0;
     const emails = state.emailMessages.filter((email) => email.inboxId === inboxId && !email.importedAt);
     for (const email of emails) {
+      const existingLead = findLeadByEmail(email.from);
+      if (existingLead) {
+        await recordReplyInner(existingLead.id, email.body);
+        email.importedAt = timestamp;
+        email.leadId = existingLead.id;
+        addTimeline(existingLead.id, 'Email reply imported', `${email.subject} from ${email.from}`);
+        imported += 1;
+        continue;
+      }
       const leadInput = await extractLeadFromText(email.body, email.subject, email.from, apiKey);
       const run = await createLeadInner(leadInput);
       email.importedAt = timestamp;

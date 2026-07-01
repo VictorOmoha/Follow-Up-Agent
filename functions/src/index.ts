@@ -365,7 +365,7 @@ app.post('/api/agent/cycle', async (req, res) => {
 // In production, geminiApiKey is read from env (Firebase Secrets) and
 // cannot be set via the API. In dev mode, it can be set via the UI.
 app.post('/api/config', (req, res) => {
-  const body = req.body as { bookingLink?: string; autopilotEnabled?: boolean; geminiApiKey?: string };
+  const body = req.body as { bookingLink?: string; autopilotEnabled?: boolean; geminiApiKey?: string; gmailSyncQuery?: string };
   const isProduction = !!(process.env.FUNCTION_TARGET || process.env.FIREBASE_CONFIG);
 
   if (isProduction && body.geminiApiKey !== undefined) {
@@ -377,6 +377,7 @@ app.post('/api/config', (req, res) => {
   if (state.config) {
     if (body.bookingLink !== undefined) state.config.bookingLink = body.bookingLink;
     if (body.autopilotEnabled !== undefined) state.config.autopilotEnabled = body.autopilotEnabled;
+    if (body.gmailSyncQuery !== undefined) state.config.gmailSyncQuery = body.gmailSyncQuery;
     if (!isProduction && body.geminiApiKey !== undefined) state.config.geminiApiKey = body.geminiApiKey;
   } else {
     state.config = {

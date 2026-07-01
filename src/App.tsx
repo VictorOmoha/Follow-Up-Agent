@@ -98,6 +98,7 @@ type AgentState = {
     bookingLink: string;
     autopilotEnabled?: boolean;
     geminiApiKeyConfigured?: boolean;
+    gmailSyncQuery?: string;
   };
 };
 
@@ -173,6 +174,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [geminiApiKey, setGeminiApiKey] = useState('');
   const [bookingLink, setBookingLink] = useState('');
+  const [gmailSyncQuery, setGmailSyncQuery] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
@@ -195,6 +197,7 @@ export default function App() {
       const nextState = await api<AgentState>('/state');
       setState({ ...emptyState, ...nextState, decisions: nextState.decisions ?? [] });
       setBookingLink((current) => current || nextState.config?.bookingLink || '');
+      setGmailSyncQuery((current) => current || nextState.config?.gmailSyncQuery || '');
       // Auto-select the most recent lead if none selected or selected lead no longer exists
       if (nextState.leads.length > 0) {
         const stillExists = nextState.leads.find((l) => l.id === selectedLeadId);
@@ -382,6 +385,19 @@ export default function App() {
     } catch (err) {
       console.error('Failed to save Gemini key:', err);
       alert('Failed to save Gemini API key.');
+    }
+  }
+
+  async function saveGmailSyncQuery() {
+    try {
+      const nextState = await api<AgentState>('/config', {
+        method: 'POST',
+        body: JSON.stringify({ gmailSyncQuery: gmailSyncQuery.trim() }),
+      });
+      setState({ ...emptyState, ...nextState, decisions: nextState.decisions ?? [] });
+    } catch (err) {
+      console.error('Failed to save Gmail sync query:', err);
+      alert('Failed to save Gmail sync filter.');
     }
   }
 
@@ -852,6 +868,20 @@ export default function App() {
                     <span>{activeInbox.provider} - {unsyncedEmailCount} unsynced</span>
                   </div>
                 ) : <p className="empty-state">No inbox connected.</p>}
+                <p className="drawer-desc" style={{ marginTop: '10px' }}>
+                  Gmail sync filter. Default <code>is:unread</code> imports every unread email — set e.g.{' '}
+                  <code>is:unread label:leads</code> so only labeled intake mail becomes leads.
+                </p>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <input
+                    aria-label="Gmail sync filter"
+                    value={gmailSyncQuery}
+                    onChange={(e) => setGmailSyncQuery(e.target.value)}
+                    placeholder="is:unread label:leads"
+                    style={{ fontSize: '0.8rem', padding: '8px 10px', flex: 1 }}
+                  />
+                  <button className="button primary sm" type="button" aria-label="Save Gmail sync filter" onClick={saveGmailSyncQuery}>Save</button>
+                </div>
               </section>
 
               {/* Calendar Link */}

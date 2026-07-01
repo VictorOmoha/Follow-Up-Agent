@@ -10,6 +10,7 @@ export type PublicAgentState = Omit<AgentState, 'inboxes' | 'config'> & {
     bookingLink: string;
     autopilotEnabled?: boolean;
     geminiApiKeyConfigured?: boolean;
+    gmailSyncQuery?: string;
   };
 };
 
@@ -28,6 +29,7 @@ export function toPublicAgentState(state: AgentState): PublicAgentState {
           bookingLink: state.config.bookingLink,
           autopilotEnabled: state.config.autopilotEnabled,
           geminiApiKeyConfigured: Boolean(state.config.geminiApiKey?.trim()),
+          gmailSyncQuery: state.config.gmailSyncQuery,
         }
       : undefined,
   };

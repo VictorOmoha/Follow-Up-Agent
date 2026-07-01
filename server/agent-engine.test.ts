@@ -116,6 +116,25 @@ describe('real follow-up agent engine', () => {
     expect(state.tasks.filter((task) => task.status === 'waiting_approval')).toHaveLength(0);
   });
 
+  it('routes inbox emails from known contacts through reply analysis instead of lead extraction', async () => {
+    const engine = createAgentEngine({ now: () => new Date('2026-05-17T20:00:00.000Z') });
+    // Existing conversation with Maya (contact matches the demo email sender)
+    const run = await engine.createLead({ ...leadInput, name: 'Maya Johnson', contact: 'maya@example.com', channel: 'Email' });
+    await engine.approveMessage(run.message.id);
+
+    const inbox = engine.connectEmailInbox({ provider: 'demo', email: 'owner@adalaw.example' });
+    const result = await engine.syncEmailInbox(inbox.id);
+    const state = engine.getState();
+
+    expect(result.imported).toBe(2);
+    // Ada's email is a new lead; Maya's email is a reply on the existing lead
+    expect(state.leads).toHaveLength(2);
+    expect(state.timeline).toContainEqual(expect.objectContaining({ label: 'Email reply imported' }));
+    const mayaInbound = state.messages.filter((m) => m.leadId === run.lead.id && m.direction === 'inbound');
+    expect(mayaInbound).toHaveLength(1);
+    expect(state.decisions).toContainEqual(expect.objectContaining({ type: 'reply_analysis' }));
+  });
+
   it('updates the existing lead instead of duplicating when the same contact comes in twice', async () => {
     const engine = createAgentEngine({ now: () => new Date('2026-05-17T20:00:00.000Z') });
     await engine.createLead(leadInput);
