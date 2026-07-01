@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createAgentEngine } from './agent-engine';
+import { createAgentEngine, phoneDigitsMatch } from './agent-engine';
 
 const leadInput = {
   name: 'Ada Okafor',
@@ -11,6 +11,18 @@ const leadInput = {
   channel: 'SMS' as const,
   contact: '+15551234567',
 };
+
+describe('phoneDigitsMatch', () => {
+  it('matches phone numbers across common formats and country-code prefixes', () => {
+    expect(phoneDigitsMatch('+11234567890', '123-456-7890')).toBe(true);
+    expect(phoneDigitsMatch('(123) 456-7890', '123.456.7890')).toBe(true);
+    expect(phoneDigitsMatch('+15551234567', '+15551234567')).toBe(true);
+    expect(phoneDigitsMatch('+15551234567', '+15559876543')).toBe(false);
+    // Short digit runs (e.g. from an email like ada2500@x.com) must not match
+    expect(phoneDigitsMatch('2500', '+15551232500')).toBe(false);
+    expect(phoneDigitsMatch('', '+15551234567')).toBe(false);
+  });
+});
 
 describe('real follow-up agent engine', () => {
   it('creates a persisted agent run with a draft message waiting for approval', async () => {
@@ -38,7 +50,82 @@ describe('real follow-up agent engine', () => {
     expect(state.leads[0].status).toBe('contacted');
     expect(state.tasks).toContainEqual(expect.objectContaining({ type: 'follow_up', status: 'scheduled' }));
     expect(state.timeline).toContainEqual(expect.objectContaining({ label: 'Owner approved and message sent' }));
-    expect(state.decisions).toContainEqual(expect.objectContaining({ type: 'schedule', action: 'Scheduled the next follow-up for 2 hours from now.' }));
+    // After the first send, the next plan step ("5 minutes") drives the delay.
+    expect(state.decisions).toContainEqual(expect.objectContaining({ type: 'schedule', action: 'Scheduled the next follow-up for 5 minutes from now.' }));
+    const followUp = state.tasks.find((task) => task.type === 'follow_up' && task.status === 'scheduled');
+    expect(followUp?.dueAt).toBe('2026-05-17T20:05:00.000Z');
+  });
+
+  it('walks the plan cadence (5min, 2h, 24h, 72h) and moves to nurture after the final step', async () => {
+    const current = { value: new Date('2026-05-17T20:00:00.000Z') };
+    const engine = createAgentEngine({ now: () => current.value });
+    const run = await engine.createLead(leadInput);
+    await engine.approveMessage(run.message.id);
+
+    const expectedDelaysMs = [
+      5 * 60 * 1000,
+      2 * 60 * 60 * 1000,
+      24 * 60 * 60 * 1000,
+      72 * 60 * 60 * 1000,
+    ];
+    // First delay was scheduled by the approval above; walk the remaining steps.
+    for (let step = 1; step < 5; step += 1) {
+      const scheduled = engine.getState().tasks.find((task) => task.type === 'follow_up' && task.status === 'scheduled');
+      expect(scheduled).toBeDefined();
+      expect(new Date(scheduled!.dueAt).getTime() - current.value.getTime()).toBe(expectedDelaysMs[step - 1]);
+
+      current.value = new Date(new Date(scheduled!.dueAt).getTime() + 1000);
+      const result = await engine.runDueTasks();
+      expect(result.createdDrafts).toBe(1);
+      const draft = engine.getState().messages.find((message) => message.status === 'draft');
+      expect(draft).toBeDefined();
+      await engine.approveMessage(draft!.id);
+    }
+
+    const state = engine.getState();
+    // All five steps sent, no sixth follow-up scheduled, lead parked in nurture.
+    expect(state.messages.filter((message) => message.direction === 'outbound' && message.status === 'sent')).toHaveLength(5);
+    expect(state.tasks.filter((task) => task.type === 'follow_up' && task.status === 'scheduled')).toHaveLength(0);
+    expect(state.leads[0].status).toBe('nurture');
+    expect(state.timeline).toContainEqual(expect.objectContaining({ label: 'Follow-up sequence complete' }));
+  });
+
+  it('closes the lead and cancels follow-ups when the reply is an opt-out, even with booking words', async () => {
+    const engine = createAgentEngine({ now: () => new Date('2026-05-17T20:00:00.000Z') });
+    const run = await engine.createLead(leadInput);
+    await engine.approveMessage(run.message.id);
+
+    // "call" matches the booking regex, but the opt-out must win.
+    await engine.recordReply(run.lead.id, "Please don't contact me again, and do not call.");
+    const state = engine.getState();
+
+    expect(state.leads[0].status).toBe('closed');
+    expect(state.tasks.filter((task) => task.status === 'scheduled' || task.status === 'waiting_approval')).toHaveLength(0);
+    expect(state.timeline).toContainEqual(expect.objectContaining({ label: 'Lead replied - opt-out received' }));
+  });
+
+  it('removes the pending draft when a lead opts out before approval', async () => {
+    const engine = createAgentEngine({ now: () => new Date('2026-05-17T20:00:00.000Z') });
+    const run = await engine.createLead(leadInput);
+
+    await engine.recordReply(run.lead.id, 'Not interested, remove me.');
+    const state = engine.getState();
+
+    expect(state.leads[0].status).toBe('closed');
+    expect(state.messages.filter((message) => message.status === 'draft')).toHaveLength(0);
+    expect(state.tasks.filter((task) => task.status === 'waiting_approval')).toHaveLength(0);
+  });
+
+  it('updates the existing lead instead of duplicating when the same contact comes in twice', async () => {
+    const engine = createAgentEngine({ now: () => new Date('2026-05-17T20:00:00.000Z') });
+    await engine.createLead(leadInput);
+    const second = await engine.createLead({ ...leadInput, budget: '4000' });
+    const state = engine.getState();
+
+    expect(state.leads).toHaveLength(1);
+    expect(state.leads[0].budget).toBe('4000');
+    expect(second.lead.id).toBe(state.leads[0].id);
+    expect(state.timeline).toContainEqual(expect.objectContaining({ label: 'Duplicate lead detected' }));
   });
 
   it('worker turns due follow-up tasks into new approval drafts', async () => {

@@ -215,8 +215,10 @@ export async function analyzeReply(
   const apiKey = getApiKey(configKey);
   if (!apiKey) {
     console.log('[GEMINI SERVICE] No API key. Falling back to rules-based reply analysis.');
-    const isBooking = /\b(yes|works|book|schedule|tomorrow|today|available|call|appointment|10|3:30)\b/i.test(replyBody);
+    // Decline wins: "don't call me" matches both patterns and must not be
+    // treated as booking intent.
     const isDecline = /\b(stop|unsubscribe|no thanks|not interested|remove me|optout|opt-out|cancel|do not contact|don't contact)\b/i.test(replyBody);
+    const isBooking = !isDecline && /\b(yes|works|book|schedule|tomorrow|today|available|call|appointment|10|3:30)\b/i.test(replyBody);
     const draftReply = isBooking
       ? 'Great! Looking forward to it. If you need anything else, just let me know.'
       : isDecline
@@ -270,8 +272,8 @@ Return a JSON object matching this schema:
     return result;
   } catch (error) {
     console.error('[GEMINI SERVICE] Reply analysis failed. Falling back to rules-based analysis:', error);
-    const isBooking = /\b(yes|works|book|schedule|tomorrow|today|available|call|appointment|10|3:30)\b/i.test(replyBody);
     const isDecline = /\b(stop|unsubscribe|no thanks|not interested|remove me|optout|opt-out|cancel|do not contact|don't contact)\b/i.test(replyBody);
+    const isBooking = !isDecline && /\b(yes|works|book|schedule|tomorrow|today|available|call|appointment|10|3:30)\b/i.test(replyBody);
     return {
       isBookingIntent: isBooking,
       isDecline: isDecline,

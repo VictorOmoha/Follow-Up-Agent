@@ -104,6 +104,26 @@ describe('webhook api integration', () => {
       expect(data2.lead.urgency).toBe('next week');
       expect(data2.lead.pain).toBe('broken pipes');
       expect(data2.lead.contact).toBe('123-456-7890');
+
+      // 3. Twilio inbound SMS: E.164 sender must match the dash-formatted lead
+      const res3 = await fetch(`http://127.0.0.1:${testPort}/api/sms/inbound`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'From=%2B11234567890&Body=Yes%2C%20tomorrow%20at%2010%20works%20for%20me.',
+      });
+      expect(res3.status).toBe(200);
+      expect(await res3.text()).toBe('<Response></Response>');
+
+      const stateRes = await fetch(`http://127.0.0.1:${testPort}/api/state`);
+      const state = await stateRes.json() as {
+        leads: Array<{ name: string; status: string }>;
+        messages: Array<{ direction: string; body: string }>;
+      };
+      // Reply attached to the existing John Smith lead (no duplicate created)
+      const johnSmithLeads = state.leads.filter((l) => l.name === 'John Smith');
+      expect(johnSmithLeads).toHaveLength(1);
+      expect(johnSmithLeads[0].status).toBe('needs_human');
+      expect(state.messages).toContainEqual(expect.objectContaining({ direction: 'inbound', body: 'Yes, tomorrow at 10 works for me.' }));
     } finally {
       proc.kill('SIGTERM');
     }

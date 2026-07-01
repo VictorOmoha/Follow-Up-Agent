@@ -155,6 +155,13 @@ function tempBadgeClass(temp: 'Hot' | 'Warm' | 'Nurture') {
   return temp === 'Hot' ? 'hot' : temp === 'Warm' ? 'warm' : 'nurture';
 }
 
+function formatBudget(budget?: string) {
+  const digits = (budget || '').replace(/[^0-9.]/g, '');
+  const amount = Number.parseFloat(digits);
+  if (!digits || Number.isNaN(amount) || amount <= 0) return budget?.trim() || 'unknown';
+  return `$${amount.toLocaleString()}`;
+}
+
 export default function App() {
   const [lead, setLead] = useState(emptyLead);
   const [reply, setReply] = useState('Yes, tomorrow at 10 works for me.');
@@ -533,7 +540,7 @@ export default function App() {
                   </div>
                   <div className="lead-header-pills">
                     <span className="lead-pill"><span>Need</span><strong>{selectedLead.service}</strong></span>
-                    <span className="lead-pill"><span>Budget</span><strong>${selectedLead.budget}</strong></span>
+                    <span className="lead-pill"><span>Budget</span><strong>{formatBudget(selectedLead.budget)}</strong></span>
                     <span className="lead-pill"><span>Urgency</span><strong>{selectedLead.urgency}</strong></span>
                     <span className="lead-pill"><span>Channel</span><strong>{selectedLead.channel}</strong></span>
                   </div>
@@ -562,9 +569,18 @@ export default function App() {
                         {draft ? 'Draft waiting for approval' :
                          scheduledFollowUp ? `Follow-up scheduled for ${new Date(scheduledFollowUp.dueAt).toLocaleTimeString()}` :
                          selectedLead.status === 'needs_human' ? 'This lead needs your review' :
+                         selectedLead.status === 'nurture' ? 'Follow-up sequence complete' :
+                         selectedLead.status === 'closed' ? 'Lead closed' :
                          'All caught up'}
                       </strong>
-                      <p>{draft?.body || scheduledFollowUp?.note || 'Run the agent cycle to check for new inbox leads and due follow-ups.'}</p>
+                      <p>
+                        {draft?.body || scheduledFollowUp?.note ||
+                          (selectedLead.status === 'nurture'
+                            ? 'All five plan steps were sent. The lead is parked in nurture; the agent re-engages automatically if they reply.'
+                            : selectedLead.status === 'closed'
+                              ? 'This lead opted out. Follow-ups are cancelled.'
+                              : 'Run the agent cycle to check for new inbox leads and due follow-ups.')}
+                      </p>
                     </div>
                     <button
                       className={`button ${primaryAction.variant}`}

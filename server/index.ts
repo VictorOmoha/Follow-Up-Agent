@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { createAgentEngine, type AgentState } from './agent-engine';
+import { createAgentEngine, phoneDigitsMatch, type AgentState } from './agent-engine';
 import { buildGmailOAuthStartFromEnv } from './gmail-oauth';
 import { loadStateFromFirestore, saveStateToFirestore } from './db';
 import { toPublicAgentState, toPublicInbox } from './public-state';
@@ -50,22 +50,32 @@ function sendJson(response: ServerResponse, status: number, body: unknown) {
   response.end(JSON.stringify(body));
 }
 
-function readJson(request: IncomingMessage): Promise<unknown> {
+function readRawBody(request: IncomingMessage): Promise<string> {
   return new Promise((resolveBody, reject) => {
     let raw = '';
     request.on('data', (chunk) => {
       raw += chunk;
     });
-    request.on('end', () => {
-      if (!raw) return resolveBody({});
-      try {
-        resolveBody(JSON.parse(raw));
-      } catch (error) {
-        reject(error);
-      }
-    });
+    request.on('end', () => resolveBody(raw));
     request.on('error', reject);
   });
+}
+
+async function readJson(request: IncomingMessage): Promise<unknown> {
+  const raw = await readRawBody(request);
+  if (!raw) return {};
+  return JSON.parse(raw);
+}
+
+// Twilio webhooks post application/x-www-form-urlencoded.
+async function readFormOrJson(request: IncomingMessage): Promise<Record<string, string>> {
+  const raw = await readRawBody(request);
+  if (!raw) return {};
+  const contentType = String(request.headers['content-type'] || '');
+  if (contentType.includes('application/json')) {
+    return JSON.parse(raw) as Record<string, string>;
+  }
+  return Object.fromEntries(new URLSearchParams(raw));
 }
 
 function match(pathname: string, pattern: RegExp) {
@@ -109,9 +119,11 @@ async function start() {
 
     const url = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`);
 
-    // Auth check (skip for webhook endpoint — it has its own auth)
+    // Auth check (skip for webhook endpoints — lead webhook has its own auth,
+    // Twilio inbound SMS is signed by Twilio and must stay reachable)
     const isWebhook = url.pathname === '/api/webhooks/lead';
-    if (!isWebhook) {
+    const isSmsInbound = url.pathname === '/api/sms/inbound';
+    if (!isWebhook && !isSmsInbound) {
       const authResult = checkAuth({ headers: request.headers as Record<string, string | string[] | undefined>, url: request.url || '' });
       if (!authResult.ok) {
         sendJson(response, authResult.status || 401, { error: authResult.error });
@@ -123,6 +135,16 @@ async function start() {
       if (!rateResult.ok) {
         response.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': String(Math.ceil(rateResult.retryAfterMs / 1000)) });
         response.end(JSON.stringify({ error: 'Rate limit exceeded. Try again later.' }));
+        return;
+      }
+    }
+
+    if (isSmsInbound) {
+      const ip = getClientIp(request);
+      const rateResult = webhookLimiter.check(ip);
+      if (!rateResult.ok) {
+        response.writeHead(429, { 'Content-Type': 'text/xml', 'Retry-After': String(Math.ceil(rateResult.retryAfterMs / 1000)) });
+        response.end('<Response></Response>');
         return;
       }
     }
@@ -324,7 +346,7 @@ async function start() {
               client_secret: clientSecret,
               code,
               grant_type: 'authorization_code',
-              redirect_uri: 'http://127.0.0.1:8787/api/inboxes/gmail/callback',
+              redirect_uri: process.env.GMAIL_REDIRECT_URI || 'http://127.0.0.1:8787/api/inboxes/gmail/callback',
             }),
           });
 
@@ -478,18 +500,11 @@ async function start() {
 
         const run = await engine.createLead(leadInput);
 
-        const state = engine.getState();
-        const lead = state.leads.find((l) => l.id === run.lead.id);
-        if (lead) {
-          state.timeline.unshift({
-            id: `event_webhook_${Date.now()}`,
-            leadId: lead.id,
-            label: 'CRM Webhook intake',
-            detail: `Lead push ingested. Mapped using ${apiKey ? 'Gemini GenAI Extraction' : 'CRM Rule Mapper'}.`,
-            createdAt: new Date().toISOString(),
-          });
-          engine.reset(state);
-        }
+        await engine.addTimelineEvent(
+          run.lead.id,
+          'CRM Webhook intake',
+          `Lead push ingested. Mapped using ${apiKey ? 'Gemini GenAI Extraction' : 'CRM Rule Mapper'}.`
+        );
 
         sendJson(response, 201, run);
         return;
@@ -556,6 +571,41 @@ async function start() {
         return;
       }
 
+      // Twilio inbound SMS webhook: matches the sender's phone to an existing
+      // lead and records the reply, or creates a new lead from the message.
+      // Mirrors the Cloud Functions endpoint in functions/src/index.ts.
+      if (request.method === 'POST' && url.pathname === '/api/sms/inbound') {
+        const form = await readFormOrJson(request);
+        const from = form.From || '';
+        const smsBody = form.Body || '';
+
+        if (!from || !smsBody) {
+          response.writeHead(400, { 'Content-Type': 'text/xml' });
+          response.end('<Response></Response>');
+          return;
+        }
+
+        console.log(`[TWILIO INBOUND] SMS from ${from}: ${smsBody}`);
+
+        const currentState = engine.getState();
+        const matchedLead = currentState.leads.find((l) => phoneDigitsMatch(l.contact || '', from));
+
+        if (!matchedLead) {
+          console.log(`[TWILIO INBOUND] No matching lead for ${from}, creating new lead from SMS.`);
+          const leadInput = await extractLeadFromText(smsBody, 'Inbound SMS', from, currentState.config?.geminiApiKey);
+          leadInput.channel = 'SMS';
+          leadInput.contact = from;
+          await engine.createLead(leadInput);
+        } else {
+          await engine.recordReply(matchedLead.id, smsBody);
+        }
+
+        // Respond with empty TwiML so Twilio doesn't retry
+        response.writeHead(200, { 'Content-Type': 'text/xml' });
+        response.end('<Response></Response>');
+        return;
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/reset') {
         engine.reset();
         sendJson(response, 200, toPublicAgentState(engine.getState()));
@@ -569,8 +619,14 @@ async function start() {
     }
   });
 
+  // Background worker: process due follow-ups every 15s. With autopilot on,
+  // run the full autonomous cycle so connected inboxes are synced too
+  // (parity with the scheduled Cloud Functions in functions/src/firebase.ts).
   setInterval(() => {
-    engine.runDueTasks();
+    const autopilot = !!engine.getState().config?.autopilotEnabled;
+    void (autopilot ? engine.runAutonomousCycle() : engine.runDueTasks()).catch((error) => {
+      console.error('[WORKER] Background run failed:', error);
+    });
   }, 15_000).unref();
 
   server.listen(PORT, () => {

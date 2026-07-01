@@ -1,5 +1,5 @@
 import express, { type Request, type Response } from 'express';
-import { createAgentEngine } from './agent-engine.js';
+import { createAgentEngine, phoneDigitsMatch } from './agent-engine.js';
 import { buildGmailOAuthStartFromEnv } from './gmail-oauth.js';
 import { loadStateFromFirestore, saveStateToFirestore } from './db.js';
 import { toPublicAgentState, toPublicInbox } from './public-state.js';
@@ -314,19 +314,11 @@ app.post('/api/webhooks/lead', async (req, res) => {
 
   const run = await getEngine().createLead(leadInput);
 
-  // Add webhook-specific timeline event
-  const state = getEngine().getState();
-  const lead = state.leads.find((l) => l.id === run.lead.id);
-  if (lead) {
-    state.timeline.unshift({
-      id: `event_webhook_${Date.now()}`,
-      leadId: lead.id,
-      label: 'CRM Webhook intake',
-      detail: `Lead push ingested. Mapped using ${apiKey ? 'Gemini GenAI Extraction' : 'CRM Rule Mapper'}.`,
-      createdAt: new Date().toISOString(),
-    });
-    getEngine().reset(state);
-  }
+  await getEngine().addTimelineEvent(
+    run.lead.id,
+    'CRM Webhook intake',
+    `Lead push ingested. Mapped using ${apiKey ? 'Gemini GenAI Extraction' : 'CRM Rule Mapper'}.`
+  );
 
   res.status(201).json(run);
 });
@@ -420,11 +412,7 @@ app.post('/api/sms/inbound', express.urlencoded({ extended: false }), async (req
 
     // Find the most recent lead with this phone number as contact
     const state = getEngine().getState();
-    const normalizedFrom = from.replace(/\D/g, '');
-    const lead = state.leads.find((l) => {
-      const normalizedContact = (l.contact || '').replace(/\D/g, '');
-      return normalizedContact && normalizedContact === normalizedFrom;
-    });
+    const lead = state.leads.find((l) => phoneDigitsMatch(l.contact || '', from));
 
     if (!lead) {
       // No matching lead - create a new one from the inbound SMS
@@ -460,9 +448,14 @@ app.use((err: unknown, _req: Request, res: Response, next: express.NextFunction)
   res.status(getStatusCode(err)).json({ error: err instanceof Error ? err.message : 'Unknown server error' });
 });
 
-// ─── Local dev server (when not running as Cloud Function) ───
+// ─── Local dev server (opt-in) ───────────────────────────────
+// Local development normally uses server/index.ts (npm run dev). Set
+// START_LOCAL_API=1 to serve this compiled Express app directly instead.
+// This must stay opt-in: the Firebase CLI loads this module on the deploy
+// machine during function discovery, and an unconditional listen() would
+// crash discovery whenever the dev server already occupies the port.
 const PORT = Number(process.env.AGENT_API_PORT || 8787);
-if (process.env.NODE_ENV !== 'production' && !process.env.FUNCTION_TARGET) {
+if (process.env.START_LOCAL_API === '1' && !process.env.FUNCTION_TARGET) {
   enginePromise.then(() => {
     app.listen(PORT, () => {
       console.log(`Omoha Follow-Up Agent API running on http://127.0.0.1:${PORT}`);

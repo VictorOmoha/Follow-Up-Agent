@@ -145,8 +145,38 @@ function addHours(date: Date, hours: number) {
   return new Date(date.getTime() + hours * 60 * 60 * 1000);
 }
 
+// Delay before each next step of the 5-step plan (0-60s, 5min, 2h, 24h, 72h).
+// Index by the number of outbound messages already sent: after send N the
+// next step is due followUpDelays[N-1] from now; past the last step the
+// sequence is complete and no further follow-up is scheduled.
+const followUpDelays = [
+  { hours: 5 / 60, label: '5 minutes' },
+  { hours: 2, label: '2 hours' },
+  { hours: 24, label: '24 hours' },
+  { hours: 72, label: '72 hours' },
+];
+
+function nextFollowUpDelay(sentCount: number) {
+  return sentCount >= 1 ? followUpDelays[sentCount - 1] : followUpDelays[0];
+}
+
 function makeId(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/**
+ * Compare two phone numbers by digits, tolerating country-code prefixes:
+ * Twilio delivers E.164 ("+11234567890") while leads are often stored as
+ * "123-456-7890". Matches when the digit strings are equal or one ends with
+ * the other (shorter side must be a plausible national number, ≥7 digits).
+ */
+export function phoneDigitsMatch(a: string, b: string): boolean {
+  const digitsA = a.replace(/\D/g, '');
+  const digitsB = b.replace(/\D/g, '');
+  if (!digitsA || !digitsB) return false;
+  if (digitsA === digitsB) return true;
+  const [short, long] = digitsA.length <= digitsB.length ? [digitsA, digitsB] : [digitsB, digitsA];
+  return short.length >= 7 && long.endsWith(short);
 }
 
 function demoEmailMessages(inboxId: string, timestamp: string): EmailMessageRecord[] {
@@ -214,7 +244,10 @@ export function createAgentEngine(options: EngineOptions = {}) {
     if (lead.channel === 'Email') {
       const contactEmail = lead.contact || '';
       const inbox = state.inboxes.find((i) => i.status === 'connected');
-      const gmailToken = inbox?.credentials?.accessToken;
+      const inboxToken = inbox?.credentials?.accessToken;
+      // A mock token would just 401 against the real Gmail API before the
+      // dry-run fallback kicks in — skip straight to SMTP/dry-run instead.
+      const gmailToken = inboxToken === 'mock_access_token' ? undefined : inboxToken;
       const result = await sendEmail(contactEmail, `Follow-up from Omoha Solutions: ${lead.service || 'your inquiry'}`, body, gmailToken);
       if (result.success) {
         addTimeline(
@@ -265,16 +298,16 @@ export function createAgentEngine(options: EngineOptions = {}) {
     // Match by phone number (digits-only comparison) or email address.
     // If a matching lead exists and is not closed, update it instead of
     // creating a duplicate.
-    const newContactNormalized = (input.contact || '').replace(/\D/g, '');
-    const newContactEmail = (input.contact || '').toLowerCase().trim();
-    if (newContactNormalized || newContactEmail) {
+    const newContact = input.contact || '';
+    const newContactEmail = newContact.toLowerCase().trim();
+    const newContactIsEmail = newContactEmail.includes('@');
+    if (newContact.trim()) {
       const existing = state.leads.find((l) => {
         if (l.status === 'closed') return false;
-        const existingContact = (l.contact || '').replace(/\D/g, '');
-        const existingEmail = (l.contact || '').toLowerCase().trim();
-        if (newContactNormalized && existingContact && newContactNormalized === existingContact) return true;
-        if (newContactEmail && existingEmail && newContactEmail.includes('@') && newContactEmail === existingEmail) return true;
-        return false;
+        const existingContact = l.contact || '';
+        const existingEmail = existingContact.toLowerCase().trim();
+        if (newContactIsEmail) return existingEmail === newContactEmail;
+        return phoneDigitsMatch(newContact, existingContact);
       });
       if (existing) {
         // Update the existing lead with any new info
@@ -293,10 +326,12 @@ export function createAgentEngine(options: EngineOptions = {}) {
           confidence: 95,
         });
         commit();
+        const existingMessage = state.messages.find((m) => m.leadId === existing.id);
+        const existingTask = state.tasks.find((t) => t.leadId === existing.id);
         return {
           lead: structuredClone(existing),
-          message: structuredClone(state.messages.find((m) => m.leadId === existing.id))!,
-          task: structuredClone(state.tasks.find((t) => t.leadId === existing.id))!,
+          message: existingMessage && structuredClone(existingMessage),
+          task: existingTask && structuredClone(existingTask),
         };
       }
     }
@@ -329,7 +364,7 @@ export function createAgentEngine(options: EngineOptions = {}) {
           leadId: lead.id,
           type: 'follow_up',
           status: 'scheduled',
-          dueAt: addHours(now(), 2).toISOString(),
+          dueAt: addHours(now(), nextFollowUpDelay(1).hours).toISOString(),
           note: 'If no reply arrives, draft the next follow-up autonomously.',
           createdAt: timestamp,
         }
@@ -396,28 +431,43 @@ export function createAgentEngine(options: EngineOptions = {}) {
       ? { ...task, status: 'done' }
       : task);
 
-    state.tasks.unshift({
-      id: makeId('task'),
-      leadId: lead.id,
-      type: 'follow_up',
-      status: 'scheduled',
-      dueAt: addHours(now(), 2).toISOString(),
-      note: 'If no reply arrives, draft the next follow-up for owner approval.',
-      createdAt: timestamp,
-    });
     addTimeline(lead.id, 'Owner approved and message sent', message.body);
 
     await deliverOutboundMessage(lead, message.body, 'owner-approved');
 
-    addTimeline(lead.id, 'Agent scheduled next follow-up', 'Next follow-up task is due in 2 hours if the lead does not reply.');
-    addDecision({
-      leadId: lead.id,
-      type: 'schedule',
-      observation: 'Owner approved the draft; the lead has not replied yet.',
-      reasoning: 'A real follow-up agent should not stop after one message. It should create the next timed task immediately.',
-      action: 'Scheduled the next follow-up for 2 hours from now.',
-      confidence: 88,
-    });
+    const sentCount = state.messages.filter((m) => m.leadId === lead.id && m.direction === 'outbound' && m.status === 'sent').length;
+    const delay = nextFollowUpDelay(sentCount);
+    if (delay) {
+      state.tasks.unshift({
+        id: makeId('task'),
+        leadId: lead.id,
+        type: 'follow_up',
+        status: 'scheduled',
+        dueAt: addHours(now(), delay.hours).toISOString(),
+        note: 'If no reply arrives, draft the next follow-up for owner approval.',
+        createdAt: timestamp,
+      });
+      addTimeline(lead.id, 'Agent scheduled next follow-up', `Next follow-up task is due in ${delay.label} if the lead does not reply.`);
+      addDecision({
+        leadId: lead.id,
+        type: 'schedule',
+        observation: 'Owner approved the draft; the lead has not replied yet.',
+        reasoning: 'A real follow-up agent should not stop after one message. It should create the next timed task immediately.',
+        action: `Scheduled the next follow-up for ${delay.label} from now.`,
+        confidence: 88,
+      });
+    } else {
+      lead.status = 'nurture';
+      addTimeline(lead.id, 'Follow-up sequence complete', 'All five plan steps were sent without a booking. Lead moved to nurture; the agent re-engages if they reply.');
+      addDecision({
+        leadId: lead.id,
+        type: 'schedule',
+        observation: 'The final step of the follow-up plan has been sent with no reply.',
+        reasoning: 'Continuing to message after the sequence ends would repeat the closing note and risk annoying the lead.',
+        action: 'Closed the loop and moved the lead to nurture instead of scheduling another follow-up.',
+        confidence: 90,
+      });
+    }
     commit();
     return structuredClone(message);
   }
@@ -430,11 +480,13 @@ export function createAgentEngine(options: EngineOptions = {}) {
     const timestamp = now().toISOString();
     let createdDrafts = 0;
     const isAutopilot = !!state.config?.autopilotEnabled;
-    for (const task of state.tasks) {
+    // Snapshot the array: the loop unshifts new tasks into state.tasks and
+    // mutating the array mid-iteration would revisit shifted elements.
+    for (const task of [...state.tasks]) {
       if (task.type !== 'follow_up' || task.status !== 'scheduled') continue;
       if (!force && new Date(task.dueAt) > now()) continue;
       const lead = state.leads.find((item) => item.id === task.leadId);
-      if (!lead || lead.status === 'needs_human' || lead.status === 'closed') continue;
+      if (!lead || lead.status === 'needs_human' || lead.status === 'closed' || lead.status === 'nurture') continue;
       const plan = await generateFollowUpPlan(lead, state.config?.bookingLink || '', state.config?.geminiApiKey);
       const sentCount = state.messages.filter((message) => message.leadId === lead.id && message.direction === 'outbound').length;
       const nextStep = plan.steps[Math.min(sentCount, plan.steps.length - 1)];
@@ -451,17 +503,24 @@ export function createAgentEngine(options: EngineOptions = {}) {
       task.status = 'done';
 
       if (isAutopilot) {
-        state.tasks.unshift({
-          id: makeId('task'),
-          leadId: lead.id,
-          type: 'follow_up',
-          status: 'scheduled',
-          dueAt: addHours(now(), 2).toISOString(),
-          note: 'If no reply arrives, draft the next follow-up autonomously.',
-          createdAt: timestamp,
-        });
-        lead.status = 'contacted';
-        
+        const sentSoFar = state.messages.filter((m) => m.leadId === lead.id && m.direction === 'outbound' && m.status === 'sent').length;
+        const delay = nextFollowUpDelay(sentSoFar);
+        if (delay) {
+          state.tasks.unshift({
+            id: makeId('task'),
+            leadId: lead.id,
+            type: 'follow_up',
+            status: 'scheduled',
+            dueAt: addHours(now(), delay.hours).toISOString(),
+            note: 'If no reply arrives, draft the next follow-up autonomously.',
+            createdAt: timestamp,
+          });
+          lead.status = 'contacted';
+        } else {
+          lead.status = 'nurture';
+          addTimeline(lead.id, 'Follow-up sequence complete', 'All five plan steps were sent without a booking. Lead moved to nurture; the agent re-engages if they reply.');
+        }
+
         await deliverOutboundMessage(lead, message.body, 'autopilot');
       } else {
         state.tasks.unshift({
@@ -631,7 +690,7 @@ export function createAgentEngine(options: EngineOptions = {}) {
       };
       const apiKey = state.config?.geminiApiKey;
       const leadInput = await extractLeadFromText(emailRecord.body, emailRecord.subject, emailRecord.from, apiKey);
-      const run = await createLead(leadInput);
+      const run = await createLeadInner(leadInput);
       emailRecord.importedAt = timestamp;
       emailRecord.leadId = run.lead.id;
       
@@ -665,6 +724,10 @@ export function createAgentEngine(options: EngineOptions = {}) {
   }
 
   async function syncEmailInbox(inboxId: string) {
+    return lock.run(() => syncEmailInboxInner(inboxId));
+  }
+
+  async function syncEmailInboxInner(inboxId: string) {
     const timestamp = now().toISOString();
     const inbox = state.inboxes.find((item) => item.id === inboxId);
     if (!inbox) throw errorWithStatus(`Inbox not found: ${inboxId}`, 404);
@@ -679,7 +742,7 @@ export function createAgentEngine(options: EngineOptions = {}) {
     const emails = state.emailMessages.filter((email) => email.inboxId === inboxId && !email.importedAt);
     for (const email of emails) {
       const leadInput = await extractLeadFromText(email.body, email.subject, email.from, apiKey);
-      const run = await createLead(leadInput);
+      const run = await createLeadInner(leadInput);
       email.importedAt = timestamp;
       email.leadId = run.lead.id;
       addTimeline(run.lead.id, 'Email lead imported', `${email.subject} from ${email.from}`);
@@ -699,6 +762,10 @@ export function createAgentEngine(options: EngineOptions = {}) {
   }
 
   async function recordReply(leadId: string, body: string) {
+    return lock.run(() => recordReplyInner(leadId, body));
+  }
+
+  async function recordReplyInner(leadId: string, body: string) {
     const timestamp = now().toISOString();
     const lead = state.leads.find((item) => item.id === leadId);
     if (!lead) throw errorWithStatus(`Lead not found: ${leadId}`, 404);
@@ -721,7 +788,28 @@ export function createAgentEngine(options: EngineOptions = {}) {
     const apiKey = state.config?.geminiApiKey;
     const analysis = await analyzeReply(lead, body, history, apiKey);
 
-    if (analysis.isBookingIntent) {
+    // Opt-out compliance always wins: if the analyzer flags both decline and
+    // booking, treat it as a decline.
+    if (analysis.isDecline) {
+      lead.status = 'closed';
+      state.tasks = state.tasks.map((task) =>
+        task.leadId === leadId && (task.status === 'scheduled' || task.status === 'waiting_approval') ? { ...task, status: 'done' } : task
+      );
+      // Drop pending drafts too — an opted-out lead must never be offered
+      // an "Approve & Send" action.
+      state.messages = state.messages.filter((m) =>
+        !(m.leadId === leadId && m.direction === 'outbound' && m.status === 'draft')
+      );
+      addTimeline(leadId, 'Lead replied - opt-out received', body);
+      addDecision({
+        leadId,
+        type: 'reply_analysis',
+        observation: `Inbound reply: "${body}"`,
+        reasoning: analysis.reasoning,
+        action: 'Closed lead and cancelled scheduled follow-ups.',
+        confidence: 95,
+      });
+    } else if (analysis.isBookingIntent) {
       lead.status = 'needs_human';
       state.tasks.unshift({
         id: makeId('task'),
@@ -740,20 +828,6 @@ export function createAgentEngine(options: EngineOptions = {}) {
         reasoning: analysis.reasoning,
         action: 'Paused nurture and created an owner review task.',
         confidence: 93,
-      });
-    } else if (analysis.isDecline) {
-      lead.status = 'closed';
-      state.tasks = state.tasks.map((task) =>
-        task.leadId === leadId && (task.status === 'scheduled' || task.status === 'waiting_approval') ? { ...task, status: 'done' } : task
-      );
-      addTimeline(leadId, 'Lead replied - opt-out received', body);
-      addDecision({
-        leadId,
-        type: 'reply_analysis',
-        observation: `Inbound reply: "${body}"`,
-        reasoning: analysis.reasoning,
-        action: 'Closed lead and cancelled scheduled follow-ups.',
-        confidence: 95,
       });
     } else {
       lead.status = 'contacted';
@@ -819,25 +893,42 @@ export function createAgentEngine(options: EngineOptions = {}) {
   }
 
   async function runAutonomousCycle() {
+    return lock.run(() => runAutonomousCycleInner());
+  }
+
+  async function runAutonomousCycleInner() {
     const startedAt = now().toISOString();
     let imported = 0;
     for (const inbox of state.inboxes.filter((item) => item.status === 'connected')) {
-      const syncResult = await syncEmailInbox(inbox.id);
+      const syncResult = await syncEmailInboxInner(inbox.id);
       imported += syncResult.imported;
     }
-    const { createdDrafts } = await runDueTasks();
+    const { createdDrafts } = await runDueTasksInner({});
     const waitingApproval = state.tasks.filter((task) => task.status === 'waiting_approval').length;
     const needsHuman = state.leads.filter((lead) => lead.status === 'needs_human').length;
-    addDecision({
-      type: 'autopilot',
-      observation: `Cycle checked ${state.inboxes.length} inboxes, ${state.leads.length} leads, and ${state.tasks.length} tasks.`,
-      reasoning: 'Autopilot imports new leads, drafts due follow-ups, then surfaces only decisions that need owner approval.',
-      action: `Imported ${imported} email leads, created ${createdDrafts} drafts, found ${waitingApproval} approval tasks and ${needsHuman} human handoffs.`,
-      confidence: 90,
-    });
-    commit();
+    // Scheduled cycles run every few minutes; only log a decision when the
+    // cycle actually did something, so idle runs don't flood the log.
+    if (imported > 0 || createdDrafts > 0) {
+      addDecision({
+        type: 'autopilot',
+        observation: `Cycle checked ${state.inboxes.length} inboxes, ${state.leads.length} leads, and ${state.tasks.length} tasks.`,
+        reasoning: 'Autopilot imports new leads, drafts due follow-ups, then surfaces only decisions that need owner approval.',
+        action: `Imported ${imported} email leads, created ${createdDrafts} drafts, found ${waitingApproval} approval tasks and ${needsHuman} human handoffs.`,
+        confidence: 90,
+      });
+      commit();
+    }
     return { startedAt, imported, createdDrafts, waitingApproval, needsHuman };
   }
 
-  return { createLead, approveMessage, runDueTasks, runAutonomousCycle, connectEmailInbox, syncEmailInbox, recordReply, getState, reset };
+  async function addTimelineEvent(leadId: string, label: string, detail: string) {
+    return lock.run(async () => {
+      const lead = state.leads.find((item) => item.id === leadId);
+      if (!lead) throw errorWithStatus(`Lead not found: ${leadId}`, 404);
+      addTimeline(leadId, label, detail);
+      commit();
+    });
+  }
+
+  return { createLead, approveMessage, runDueTasks, runAutonomousCycle, connectEmailInbox, syncEmailInbox, recordReply, addTimelineEvent, getState, reset };
 }

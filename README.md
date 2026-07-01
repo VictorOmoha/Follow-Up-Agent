@@ -8,17 +8,20 @@ AI follow-up agent MVP for service businesses. It captures inbound leads, scores
 - Rules-based lead scoring with optional Gemini GenAI scoring
 - Universal lead extraction from unstructured emails/webhooks with Gemini and deterministic fallbacks
 - Hot/Warm/Nurture classification
-- Five-step follow-up sequence generator
+- Five-step follow-up sequence generator with plan-aligned scheduling (5 min → 2 h → 24 h → 72 h); after the final step the lead moves to nurture instead of looping
 - Draft-only human approval mode for safe demos
 - Autopilot mode for auto-send / dry-run follow-up workflows
 - Twilio SMS send helper with dry-run fallback
+- Twilio inbound SMS webhook (`/api/sms/inbound`) that matches replies to leads by phone (E.164-tolerant) or creates a new lead from the message
+- Reply intelligence: booking intent escalates to the owner, opt-outs close the lead, cancel follow-ups, and remove pending drafts (opt-out always wins over booking words)
+- Lead deduplication by phone/email so repeat inquiries update the existing lead
 - Email and call delivery timeline logging for demo/ops visibility
 - Gmail OAuth readiness flow, mock Gmail connection, and inbox sync
 - CRM/webform webhook ingestion endpoint
 - Editable booking link used inside follow-up plans
 - Money-on-the-table dashboard and owner daily digest
 - Public API state redaction so secrets/tokens do not leak to the browser
-- Test coverage for scoring, planning, extraction, webhook intake, inbox sync, autopilot, and UI flow
+- Test coverage for scoring, planning, extraction, webhook intake, inbound SMS, inbox sync, autopilot, cadence, and UI flow
 
 ## Run locally
 
@@ -74,6 +77,18 @@ Example webhook payload:
   "phone": "+155****4567"
 }
 ```
+
+To simulate an inbound SMS reply from a lead (Twilio webhook format):
+
+```bash
+curl -X POST http://127.0.0.1:8787/api/sms/inbound \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode 'From=+15551234567' \
+  --data-urlencode 'Body=Yes, tomorrow at 10 works for me.'
+```
+
+In production, point your Twilio phone number's messaging webhook at
+`https://YOUR_DEPLOYED_DOMAIN/api/sms/inbound`.
 
 ## Shareable demo guide
 
