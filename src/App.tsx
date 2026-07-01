@@ -399,39 +399,18 @@ export default function App() {
 
   return (
     <div className="app-container">
-      {/* Header */}
+      {/* Header - slim, no metrics crammed in */}
       <header className="app-header">
         <div className="header-brand">
           <span className="eyebrow">Omoha Solutions</span>
-          <h1>Follow-Up Agent</h1>
-          {error && <span className="error-badge">{error}</span>}
-        </div>
-
-        <div className="header-metrics">
-          <div className="metric-item">
-            <CircleDollarSign size={16} />
-            <span>Pipeline</span>
-            <strong>${stats.pipeline.toLocaleString()}</strong>
-          </div>
-          <div className="metric-item">
-            <Flame size={16} />
-            <span>Hot</span>
-            <strong>{stats.hot}</strong>
-          </div>
-          <div className="metric-item">
-            <PhoneCall size={16} />
-            <span>Approval</span>
-            <strong>{stats.waitingApproval}</strong>
-          </div>
-          <div className="metric-item">
-            <CalendarCheck size={16} />
-            <span>Scheduled</span>
-            <strong>{stats.scheduled}</strong>
+          <div className="brand-title-row">
+            <h1>Follow-Up Agent</h1>
+            {error && <span className="error-badge">{error}</span>}
           </div>
         </div>
 
         <div className="header-status">
-          <a href="/demo-guide.html" className="button secondary sm" target="_blank" rel="noreferrer">Open demo guide</a>
+          <a href="/demo-guide.html" className="button secondary sm" target="_blank" rel="noreferrer">Demo guide</a>
           <button
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
             className="button secondary sm icon-btn"
@@ -455,9 +434,9 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Workspace: 3 columns - Lead List | Workbench | Decision Log */}
+      {/* Main Workspace: 3 columns - Lead List | Workbench | Agent Activity */}
       <div className="workspace">
-        {/* Column 1: Lead List */}
+        {/* Column 1: Lead List + Stats */}
         <aside className="workspace-column lead-list-column">
           <div className="lead-list-header">
             <h2>Leads</h2>
@@ -470,18 +449,38 @@ export default function App() {
             </button>
           </div>
 
-          <div className="lead-list-summary">
-            <div className="digest-mini">
-              <CircleDollarSign size={12} />
-              <span>${stats.moneyOnTable.toLocaleString()} on table</span>
+          {/* Stat cards replacing the old header metrics + digest */}
+          <div className="sidebar-stats">
+            <div className="stat-card stat-money">
+              <CircleDollarSign size={14} />
+              <div>
+                <strong>${stats.moneyOnTable.toLocaleString()}</strong>
+                <span>on table</span>
+              </div>
             </div>
-            <div className="digest-mini">
-              <Flame size={12} />
-              <span>{stats.hotLeadsCount} hot</span>
+            <div className="stat-card-row">
+              <div className="stat-card stat-hot">
+                <Flame size={12} />
+                <strong>{stats.hotLeadsCount}</strong>
+                <span>hot</span>
+              </div>
+              <div className="stat-card stat-stalled">
+                <Clock size={12} />
+                <strong>{stats.stalledLeadsCount}</strong>
+                <span>stalled</span>
+              </div>
             </div>
-            <div className="digest-mini">
-              <Clock size={12} />
-              <span>{stats.stalledLeadsCount} stalled</span>
+            <div className="stat-card-row">
+              <div className="stat-card stat-approval">
+                <PhoneCall size={12} />
+                <strong>{stats.waitingApproval}</strong>
+                <span>approval</span>
+              </div>
+              <div className="stat-card stat-scheduled">
+                <CalendarCheck size={12} />
+                <strong>{stats.scheduled}</strong>
+                <span>scheduled</span>
+              </div>
             </div>
           </div>
 
@@ -525,53 +524,22 @@ export default function App() {
           <div className="panel fill-height flex-layout">
             {selectedLead ? (
               <div className="workbench-content">
-                {/* Lead summary */}
-                <div className="lead-summary-badge">
-                  <div className="lead-summary-top">
+                {/* Lead header bar - compact, sticky */}
+                <div className="lead-header-bar">
+                  <div className="lead-header-left">
                     <span className={`badge ${selectedLead.status}`}>{selectedLead.status.replace('_', ' ')}</span>
-                    <strong>{selectedLead.name} ({selectedLead.company})</strong>
+                    <strong className="lead-name">{selectedLead.name}</strong>
+                    <span className="lead-company">{selectedLead.company}</span>
                   </div>
-                  <p>Needs: {selectedLead.service} - Budget: {selectedLead.budget} - Urgency: {selectedLead.urgency} - Channel: {selectedLead.channel}</p>
-                </div>
-
-                {/* Reasoning + Timeline */}
-                <div className="workbench-middle-section">
-                  {selectedLeadDecision && (
-                    <div className="reasoning-box-compact">
-                      <span>Agent Reasoning</span>
-                      <strong>{selectedLeadDecision.observation}</strong>
-                      <p>{selectedLeadDecision.reasoning}</p>
-                      <small>{selectedLeadDecision.action}</small>
-                    </div>
-                  )}
-                  <div className="agent-timeline-compact">
-                    <span>Timeline & Tasks</span>
-                    <div className="timeline-scroll">
-                      {activeTasks.map((task) => (
-                        <div key={task.id} className="timeline-event-item task-item">
-                          <ClipboardCheck size={14} />
-                          <div>
-                            <strong>{task.type.replace('_', ' ')} - {task.status.replace('_', ' ')}</strong>
-                            <p>{task.note}</p>
-                            <small>Due: {new Date(task.dueAt).toLocaleTimeString()}</small>
-                          </div>
-                        </div>
-                      ))}
-                      {activeTimeline.map((event) => (
-                        <div key={event.id} className="timeline-event-item">
-                          <CheckCircle2 size={14} />
-                          <div>
-                            <strong>{event.label}</strong>
-                            <p>{event.detail}</p>
-                            <small>{new Date(event.createdAt).toLocaleTimeString()}</small>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                  <div className="lead-header-pills">
+                    <span className="lead-pill"><span>Need</span><strong>{selectedLead.service}</strong></span>
+                    <span className="lead-pill"><span>Budget</span><strong>${selectedLead.budget}</strong></span>
+                    <span className="lead-pill"><span>Urgency</span><strong>{selectedLead.urgency}</strong></span>
+                    <span className="lead-pill"><span>Channel</span><strong>{selectedLead.channel}</strong></span>
                   </div>
                 </div>
 
-                {/* Conversation thread */}
+                {/* Conversation thread - full width */}
                 <div className="chat-thread-section">
                   <span>Conversation Thread</span>
                   <div className="chat-history">
@@ -688,27 +656,75 @@ export default function App() {
           </div>
         </section>
 
-        {/* Column 3: Decision Log */}
-        <aside className="workspace-column decision-column">
+        {/* Column 3: Agent Activity (reasoning + timeline + decisions merged) */}
+        <aside className="workspace-column activity-column">
           <div className="panel fill-height flex-layout">
             <div className="panel-heading">
               <Brain size={16} />
-              <h2>Agent Decisions</h2>
+              <h2>Agent Activity</h2>
             </div>
-            <div className="decision-stream">
-              {latestDecisions.length ? latestDecisions.map((decision) => (
-                <article key={decision.id} className="decision-log-item">
-                  <div className="decision-meta">
-                    <span className="decision-tag">{decision.type}</span>
-                    <span className="decision-conf">{decision.confidence}% conf</span>
+
+            <div className="activity-stream">
+              {/* Reasoning for selected lead */}
+              {selectedLeadDecision && (
+                <div className="activity-section">
+                  <span className="activity-section-label">Reasoning</span>
+                  <div className="reasoning-card">
+                    <strong>{selectedLeadDecision.observation}</strong>
+                    <p>{selectedLeadDecision.reasoning}</p>
+                    <small>{selectedLeadDecision.action}</small>
                   </div>
-                  <strong>{decision.observation}</strong>
-                  <p>{decision.reasoning}</p>
-                  <small>{decision.action}</small>
-                </article>
-              )) : (
-                <p className="empty-state">No decisions logged yet. The agent starts reasoning once a lead comes in.</p>
+                </div>
               )}
+
+              {/* Tasks + Timeline for selected lead */}
+              {(activeTasks.length > 0 || activeTimeline.length > 0) && (
+                <div className="activity-section">
+                  <span className="activity-section-label">Timeline & Tasks</span>
+                  <div className="timeline-list">
+                    {activeTasks.map((task) => (
+                      <div key={task.id} className="timeline-item task-item">
+                        <ClipboardCheck size={14} />
+                        <div>
+                          <strong>{task.type.replace('_', ' ')} - {task.status.replace('_', ' ')}</strong>
+                          <p>{task.note}</p>
+                          <small>Due: {new Date(task.dueAt).toLocaleTimeString()}</small>
+                        </div>
+                      </div>
+                    ))}
+                    {activeTimeline.map((event) => (
+                      <div key={event.id} className="timeline-item">
+                        <CheckCircle2 size={14} />
+                        <div>
+                          <strong>{event.label}</strong>
+                          <p>{event.detail}</p>
+                          <small>{new Date(event.createdAt).toLocaleTimeString()}</small>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Global decision log */}
+              <div className="activity-section activity-section-global">
+                <span className="activity-section-label">Decision Log</span>
+                <div className="decision-stream">
+                  {latestDecisions.length ? latestDecisions.map((decision) => (
+                    <article key={decision.id} className="decision-log-item">
+                      <div className="decision-meta">
+                        <span className="decision-tag">{decision.type}</span>
+                        <span className="decision-conf">{decision.confidence}% conf</span>
+                      </div>
+                      <strong>{decision.observation}</strong>
+                      <p>{decision.reasoning}</p>
+                      <small>{decision.action}</small>
+                    </article>
+                  )) : (
+                    <p className="empty-state">No decisions logged yet. The agent starts reasoning once a lead comes in.</p>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </aside>

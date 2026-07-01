@@ -48,13 +48,14 @@ export type AgentRun = {
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 
-function parseBudget(value: string): number {
-  const digits = value.replace(/[^0-9.]/g, '');
+function parseBudget(value: string | undefined | null): number {
+  const safe = value ?? '';
+  const digits = safe.replace(/[^0-9.]/g, '');
   return Number.parseFloat(digits || '0');
 }
 
-function hasAny(text: string, terms: string[]): boolean {
-  const normalized = text.toLowerCase();
+function hasAny(text: string | undefined | null, terms: string[]): boolean {
+  const normalized = (text ?? '').toLowerCase();
   return terms.some((term) => normalized.includes(term));
 }
 
@@ -85,7 +86,7 @@ export function scoreLead(input: Pick<LeadInput, 'budget' | 'urgency' | 'pain'>)
   if (hasAny(input.pain, ['missed', 'losing', 'cold', 'follow up', 'follow-up', 'not answered', 'no response'])) {
     score += 20;
     reasons.push('Revenue leakage pain');
-  } else if (input.pain.trim().length > 20) {
+  } else if ((input.pain ?? '').trim().length > 20) {
     score += 8;
     reasons.push('Specific pain described');
   }
