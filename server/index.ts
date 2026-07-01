@@ -121,7 +121,7 @@ async function start() {
 
     // Auth check (skip for webhook endpoints — lead webhook has its own auth,
     // Twilio inbound SMS is signed by Twilio and must stay reachable)
-    const isWebhook = url.pathname === '/api/webhooks/lead';
+    const isWebhook = url.pathname === '/api/webhooks/lead' || url.pathname === '/api/webhooks/email';
     const isSmsInbound = url.pathname === '/api/sms/inbound';
     if (!isWebhook && !isSmsInbound) {
       const authResult = checkAuth({ headers: request.headers as Record<string, string | string[] | undefined>, url: request.url || '' });
@@ -507,6 +507,30 @@ async function start() {
         );
 
         sendJson(response, 201, run);
+        return;
+      }
+
+      // Provider-agnostic inbound email webhook (SendGrid/Mailgun/Postmark
+      // inbound-parse formats or any custom forwarder). Mirrors functions/src/index.ts.
+      if (request.method === 'POST' && url.pathname === '/api/webhooks/email') {
+        const b = (await readJson(request) ?? {}) as Record<string, unknown>;
+        const str = (v: unknown) => (typeof v === 'string' ? v : '');
+        const from = str(b.from) || str(b.sender) || str(b.From) || str(b.envelope_from);
+        const subject = str(b.subject) || str(b.Subject) || undefined;
+        const stripHtml = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        const emailBody = str(b.text) || str(b['body-plain']) || str(b.TextBody) || str(b.body)
+          || stripHtml(str(b.html) || str(b['body-html']) || str(b.HtmlBody));
+
+        const emailMatch = from.match(/<([^>]+)>/);
+        const fromEmail = emailMatch ? emailMatch[1] : from;
+
+        if (!fromEmail || !emailBody) {
+          sendJson(response, 400, { error: 'Payload must include a sender (from/sender/From) and a text body (text/body-plain/TextBody/body/html).' });
+          return;
+        }
+
+        const result = await engine.ingestInboundEmail({ from: fromEmail, subject, body: emailBody });
+        sendJson(response, 201, { type: result.type, leadId: result.leadId });
         return;
       }
 

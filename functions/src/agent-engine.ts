@@ -952,6 +952,28 @@ export function createAgentEngine(options: EngineOptions = {}) {
     return { startedAt, imported, createdDrafts, waitingApproval, needsHuman };
   }
 
+  /**
+   * Provider-agnostic inbound email ingestion (from forwarding rules or
+   * inbound-parse webhooks — SendGrid, Mailgun, Postmark, etc.). Emails from
+   * known contacts run through reply analysis; unknown senders become leads.
+   */
+  async function ingestInboundEmail(input: { from: string; subject?: string; body: string }) {
+    return lock.run(async () => {
+      const existing = findLeadByEmail(input.from);
+      if (existing) {
+        const message = await recordReplyInner(existing.id, input.body);
+        addTimeline(existing.id, 'Email reply received (webhook)', `${input.subject || '(no subject)'} from ${input.from}`);
+        commit();
+        return { type: 'reply' as const, leadId: existing.id, message };
+      }
+      const leadInput = await extractLeadFromText(input.body, input.subject, input.from, state.config?.geminiApiKey);
+      const run = await createLeadInner(leadInput);
+      addTimeline(run.lead.id, 'Email lead received (webhook)', `${input.subject || '(no subject)'} from ${input.from}`);
+      commit();
+      return { type: 'lead' as const, leadId: run.lead.id, run };
+    });
+  }
+
   async function addTimelineEvent(leadId: string, label: string, detail: string) {
     return lock.run(async () => {
       const lead = state.leads.find((item) => item.id === leadId);
@@ -961,5 +983,5 @@ export function createAgentEngine(options: EngineOptions = {}) {
     });
   }
 
-  return { createLead, approveMessage, runDueTasks, runAutonomousCycle, connectEmailInbox, syncEmailInbox, recordReply, addTimelineEvent, getState, reset };
+  return { createLead, approveMessage, runDueTasks, runAutonomousCycle, connectEmailInbox, syncEmailInbox, recordReply, ingestInboundEmail, addTimelineEvent, getState, reset };
 }

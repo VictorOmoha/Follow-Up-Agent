@@ -135,6 +135,32 @@ describe('real follow-up agent engine', () => {
     expect(state.decisions).toContainEqual(expect.objectContaining({ type: 'reply_analysis' }));
   });
 
+  it('ingests webhook emails: new sender becomes a lead, known sender becomes an analyzed reply', async () => {
+    const engine = createAgentEngine({ now: () => new Date('2026-05-17T20:00:00.000Z') });
+
+    const first = await engine.ingestInboundEmail({
+      from: 'jordan@customdomain.com',
+      subject: 'Need a kitchen remodel quote',
+      body: "Hi, I'm Jordan Lee from Lee Properties. Budget is around $12,000 and we need it done this month.",
+    });
+    expect(first.type).toBe('lead');
+    let state = engine.getState();
+    expect(state.leads).toHaveLength(1);
+    expect(state.leads[0].contact).toBe('jordan@customdomain.com');
+    expect(state.timeline).toContainEqual(expect.objectContaining({ label: 'Email lead received (webhook)' }));
+
+    const second = await engine.ingestInboundEmail({
+      from: 'Jordan Lee <jordan@customdomain.com>'.match(/<([^>]+)>/)![1],
+      subject: 'Re: quote',
+      body: 'Yes, tomorrow at 10 works for me.',
+    });
+    expect(second.type).toBe('reply');
+    state = engine.getState();
+    expect(state.leads).toHaveLength(1);
+    expect(state.leads[0].status).toBe('needs_human');
+    expect(state.timeline).toContainEqual(expect.objectContaining({ label: 'Email reply received (webhook)' }));
+  });
+
   it('updates the existing lead instead of duplicating when the same contact comes in twice', async () => {
     const engine = createAgentEngine({ now: () => new Date('2026-05-17T20:00:00.000Z') });
     await engine.createLead(leadInput);

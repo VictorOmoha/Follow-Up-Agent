@@ -91,7 +91,7 @@ app.use((_req, res, next) => {
 });
 
 // Auth middleware (skip for webhook endpoints and Twilio inbound)
-const publicPaths = new Set(['/api/webhooks/lead', '/api/sms/inbound']);
+const publicPaths = new Set(['/api/webhooks/lead', '/api/webhooks/email', '/api/sms/inbound']);
 app.use((req, res, next) => {
   if (publicPaths.has(req.path)) return next();
 
@@ -321,6 +321,43 @@ app.post('/api/webhooks/lead', async (req, res) => {
   );
 
   res.status(201).json(run);
+});
+
+// ─── POST /api/webhooks/email (provider-agnostic inbound email) ──
+// Accepts inbound-parse payloads from SendGrid ({from, subject, text}),
+// Mailgun ({sender, subject, "body-plain"}), Postmark ({From, Subject,
+// TextBody}), or any custom forwarder. Known contacts run through reply
+// analysis; unknown senders become new leads.
+app.post('/api/webhooks/email', async (req, res) => {
+  const webhookAuthResult = checkWebhookAuth({ headers: req.headers as Record<string, string | string[] | undefined>, url: req.url });
+  if (!webhookAuthResult.ok) {
+    res.status(webhookAuthResult.status || 401).json({ error: webhookAuthResult.error });
+    return;
+  }
+  const rateResult = webhookLimiter.check(getClientIp(req));
+  if (!rateResult.ok) {
+    res.status(429).json({ error: 'Webhook rate limit exceeded. Try again later.' });
+    return;
+  }
+
+  const b = (req.body ?? {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === 'string' ? v : '');
+  const from = str(b.from) || str(b.sender) || str(b.From) || str(b.envelope_from);
+  const subject = str(b.subject) || str(b.Subject) || undefined;
+  const stripHtml = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const body = str(b.text) || str(b['body-plain']) || str(b.TextBody) || str(b.body)
+    || stripHtml(str(b.html) || str(b['body-html']) || str(b.HtmlBody));
+
+  const emailMatch = from.match(/<([^>]+)>/);
+  const fromEmail = emailMatch ? emailMatch[1] : from;
+
+  if (!fromEmail || !body) {
+    res.status(400).json({ error: 'Payload must include a sender (from/sender/From) and a text body (text/body-plain/TextBody/body/html).' });
+    return;
+  }
+
+  const result = await getEngine().ingestInboundEmail({ from: fromEmail, subject, body });
+  res.status(201).json({ type: result.type, leadId: result.leadId });
 });
 
 // ─── POST /api/inboxes ───────────────────────────────────────
