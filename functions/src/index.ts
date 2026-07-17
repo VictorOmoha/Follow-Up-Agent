@@ -314,10 +314,16 @@ app.post('/api/webhooks/lead', async (req, res) => {
 
   const run = await getEngine().createLead(leadInput);
 
+  const extractionProvider = process.env.OPENAI_API_KEY
+    ? 'OpenAI GPT-5.6'
+    : apiKey
+      ? 'Gemini GenAI Extraction'
+      : 'CRM Rule Mapper';
+
   await getEngine().addTimelineEvent(
     run.lead.id,
     'CRM Webhook intake',
-    `Lead push ingested. Mapped using ${apiKey ? 'Gemini GenAI Extraction' : 'CRM Rule Mapper'}.`
+    `Lead push ingested. Mapped using ${extractionProvider}.`
   );
 
   res.status(201).json(run);
