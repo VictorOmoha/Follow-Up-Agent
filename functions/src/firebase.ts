@@ -3,11 +3,9 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { app, enginePromise, getEngineForScheduler } from './index.js';
 
-// Configurable environment parameters. Values come from
-// functions/.env.<project> at deploy time and are written to the function's
-// runtime environment by the Firebase CLI. These are string params, NOT
-// Secret Manager secrets — do not pass them via the `secrets:` option, which
-// would force the Secret Manager API onto the project.
+// Configurable runtime parameters. OPENAI_API_KEY is stored in Secret Manager
+// and explicitly bound to every function that can process inbound leads.
+// The remaining values use the existing Firebase string-parameter setup.
 defineString('GEMINI_API_KEY', { default: '' });
 const openaiApiKey = defineSecret('OPENAI_API_KEY');
 defineString('OPENAI_EXTRACTION_MODEL', { default: 'gpt-5.6-luna' });
