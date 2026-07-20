@@ -326,3 +326,7 @@ The demo video, judge-access checklist, evidence links, and final submission fie
 **Promise:** Every inbound lead is captured, understood, and moved toward the right next step without forcing a small business owner to hire an SDR or constantly monitor every channel.
 
 Initial target workflows include staffing and recruiting agencies, consultants, marketing agencies, contractors, clinics, law-firm intake, and other service businesses where delayed follow-up means lost revenue.
+
+## License
+
+Copyright (c) 2026 Victor Omoha. Released under the [MIT License](LICENSE).
