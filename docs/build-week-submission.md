@@ -82,7 +82,7 @@ Show the branch comparison and tests. Explain how Codex traced the existing arch
 - [ ] Run the synthetic webhook against the deployed URL.
 - [ ] Confirm HTTP `201` and the `OpenAI GPT-5.6` timeline entry.
 - [ ] Confirm README setup instructions from a fresh checkout.
-- [ ] Make the repository public with a license, or share a private repository with the required judging accounts.
+- [x] Public repository includes the [MIT License](../LICENSE).
 - [ ] Record and upload a public video shorter than three minutes.
 - [ ] Add the majority-core-work Codex `/feedback` session ID.
 - [ ] Submit before 8:00 p.m. Eastern on July 21.
