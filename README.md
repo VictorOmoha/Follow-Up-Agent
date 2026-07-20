@@ -6,12 +6,12 @@ Built by [Omoha Solutions](https://omohasolutions.com/) for OpenAI Build Week 20
 
 ## Links
 
-- Existing product demo: [omoha-followup-agent-mvp.web.app](https://omoha-followup-agent-mvp.web.app/)
+- Live Build Week demo: [omoha-followup-agent-mvp.web.app](https://omoha-followup-agent-mvp.web.app/)
 - Walkthrough guide: [omoha-followup-agent-mvp.web.app/demo-guide.html](https://omoha-followup-agent-mvp.web.app/demo-guide.html)
 - Build Week branch: [`build-week-gpt56`](https://github.com/VictorOmoha/Follow-Up-Agent/tree/build-week-gpt56)
 - Build Week change evidence: [`main...build-week-gpt56`](https://github.com/VictorOmoha/Follow-Up-Agent/compare/main...build-week-gpt56)
 
-> The public demo above predates the Build Week deployment. Use the Build Week branch and local setup below to review the GPT-5.6 extension until the judge build is deployed.
+> The public demo above is deployed from the Build Week branch. The branch comparison below separates the pre-event product from the GPT-5.6 extension built during the challenge.
 
 ## The problem
 
