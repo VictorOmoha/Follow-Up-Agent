@@ -11,7 +11,7 @@ This document keeps the final Devpost materials, evidence, judge access, and dem
 - Build Week branch: [`build-week-gpt56`](https://github.com/VictorOmoha/Follow-Up-Agent/tree/build-week-gpt56)
 - Pre-event baseline: [`ed5b307`](https://github.com/VictorOmoha/Follow-Up-Agent/commit/ed5b3077027771bf861a13f50cb1dc2388e29f45)
 - Challenge-period diff: [`main...build-week-gpt56`](https://github.com/VictorOmoha/Follow-Up-Agent/compare/main...build-week-gpt56)
-- Judge build URL: `TBD`
+- Judge build URL: [https://omoha-followup-agent-mvp.web.app/](https://omoha-followup-agent-mvp.web.app/)
 - Public demo video URL: `TBD`
 - Codex `/feedback` session ID: `TBD`
 
@@ -74,7 +74,7 @@ Show the branch comparison and tests. Explain how Codex traced the existing arch
 
 ## Judge-access checklist
 
-- [ ] Deploy the `build-week-gpt56` branch.
+- [x] Deploy the `build-week-gpt56` branch.
 - [ ] Confirm the judge URL loads without authentication barriers, or provide test credentials in Devpost.
 - [ ] Set `OPENAI_API_KEY` through Firebase Secret Manager.
 - [ ] Confirm no real lead or customer data is visible.
