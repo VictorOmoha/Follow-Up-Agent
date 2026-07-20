@@ -75,13 +75,13 @@ Show the branch comparison and tests. Explain how Codex traced the existing arch
 ## Judge-access checklist
 
 - [x] Deploy the `build-week-gpt56` branch.
-- [ ] Confirm the judge URL loads without authentication barriers, or provide test credentials in Devpost.
+- [x] Confirm the judge URL loads without authentication barriers, or provide test credentials in Devpost.
 - [ ] Set `OPENAI_API_KEY` through Firebase Secret Manager.
-- [ ] Confirm no real lead or customer data is visible.
+- [x] Confirm no real lead or customer data is visible.
 - [ ] Reset the app to a clean demo state.
-- [ ] Run the synthetic webhook against the deployed URL.
+- [x] Run the synthetic webhook against the deployed URL.
 - [ ] Confirm HTTP `201` and the `OpenAI GPT-5.6` timeline entry.
-- [ ] Confirm README setup instructions from a fresh checkout.
+- [x] Confirm README setup instructions from a fresh checkout.
 - [x] Public repository includes the [MIT License](../LICENSE).
 - [ ] Record and upload a public video shorter than three minutes.
 - [ ] Add the majority-core-work Codex `/feedback` session ID.
@@ -89,9 +89,9 @@ Show the branch comparison and tests. Explain how Codex traced the existing arch
 
 ## Final quality check
 
-- [ ] Description distinguishes the pre-event baseline from the Build Week extension.
+- [x] Description distinguishes the pre-event baseline from the Build Week extension.
 - [ ] Video shows the new GPT-5.6 behavior, not only the pre-existing dashboard.
-- [ ] Claims match the `main...build-week-gpt56` diff.
-- [ ] Synthetic data is used throughout.
+- [x] Claims match the `main...build-week-gpt56` diff.
+- [x] Synthetic data is used throughout.
 - [ ] Audio is clear and no unauthorized music, logos, or media are included.
 - [ ] Repository, judge build, demo video, and `/feedback` ID are accessible.
