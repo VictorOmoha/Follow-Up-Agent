@@ -4,6 +4,7 @@ import { sendEmail } from './email.js';
 import { makeCall } from './voice.js';
 import { AsyncLock } from './lock.js';
 import { analyzeAndScoreLead, generateFollowUpPlan, analyzeReply, extractLeadFromText } from './gemini.js';
+import { buildRetentionSnapshot } from './retention.js';
 
 export type LeadStatus = 'new' | 'waiting_approval' | 'contacted' | 'needs_human' | 'nurture' | 'closed';
 export type MessageStatus = 'draft' | 'sent' | 'received';
@@ -44,6 +45,9 @@ export type LeadRecord = LeadInput & {
   status: LeadStatus;
   createdAt: string;
   updatedAt: string;
+  owner?: string;
+  renewalAt?: string;
+  openIssues?: string[];
 };
 
 export type MessageRecord = {
@@ -78,12 +82,22 @@ export type TimelineRecord = {
 export type AgentDecisionRecord = {
   id: string;
   leadId?: string;
-  type: 'triage' | 'draft' | 'schedule' | 'inbox_sync' | 'reply_analysis' | 'autopilot';
+  type: 'triage' | 'draft' | 'schedule' | 'inbox_sync' | 'reply_analysis' | 'autopilot' | 'retention';
   observation: string;
   reasoning: string;
   action: string;
   confidence: number;
   createdAt: string;
+};
+
+export type RetentionOutcome = 'recovered' | 'monitoring' | 'lost' | 'no_response';
+
+export type RetentionOutcomeRecord = {
+  id: string;
+  leadId: string;
+  outcome: RetentionOutcome;
+  note?: string;
+  recordedAt: string;
 };
 
 export type AgentState = {
@@ -94,6 +108,7 @@ export type AgentState = {
   decisions: AgentDecisionRecord[];
   inboxes: ConnectedInbox[];
   emailMessages: EmailMessageRecord[];
+  retentionOutcomes?: RetentionOutcomeRecord[];
   config?: {
     bookingLink: string;
     autopilotEnabled?: boolean;
@@ -124,7 +139,7 @@ const defaultConfig = () => ({
   autopilotEnabled: false,
 });
 
-const emptyState = (): AgentState => ({ leads: [], messages: [], tasks: [], timeline: [], decisions: [], inboxes: [], emailMessages: [], config: defaultConfig() });
+const emptyState = (): AgentState => ({ leads: [], messages: [], tasks: [], timeline: [], decisions: [], inboxes: [], emailMessages: [], retentionOutcomes: [], config: defaultConfig() });
 
 function normalizeState(state: Partial<AgentState>): AgentState {
   const config = {
@@ -140,6 +155,7 @@ function normalizeState(state: Partial<AgentState>): AgentState {
     decisions: state.decisions ?? [],
     inboxes: state.inboxes ?? [],
     emailMessages: state.emailMessages ?? [],
+    retentionOutcomes: state.retentionOutcomes ?? [],
     config,
   };
 }
@@ -424,6 +440,8 @@ export function createAgentEngine(options: EngineOptions = {}) {
     if (!message) throw errorWithStatus(`Message not found: ${messageId}`, 404);
     const lead = state.leads.find((item) => item.id === message.leadId);
     if (!lead) throw errorWithStatus(`Lead not found: ${message.leadId}`, 404);
+    if (message.status !== 'draft') throw errorWithStatus('Only a draft message can be approved.', 409);
+    if (lead.status === 'closed') throw errorWithStatus('Cannot send a message to a closed account.', 409);
 
     message.status = 'sent';
     message.sentAt = timestamp;
@@ -983,5 +1001,104 @@ export function createAgentEngine(options: EngineOptions = {}) {
     });
   }
 
-  return { createLead, approveMessage, runDueTasks, runAutonomousCycle, connectEmailInbox, syncEmailInbox, recordReply, ingestInboundEmail, addTimelineEvent, getState, reset };
+  async function prepareRetentionDraft(leadId: string) {
+    return lock.run(() => prepareRetentionDraftInner(leadId));
+  }
+
+  async function prepareRetentionDraftInner(leadId: string) {
+    const lead = state.leads.find((item) => item.id === leadId);
+    if (!lead) throw errorWithStatus(`Lead not found: ${leadId}`, 404);
+    if (lead.status === 'closed') throw errorWithStatus('Cannot prepare retention outreach for a closed account.', 409);
+
+    const existingDraft = state.messages.find((message) => message.leadId === leadId && message.direction === 'outbound' && message.status === 'draft');
+    if (existingDraft) return structuredClone(existingDraft);
+
+    const timestamp = now().toISOString();
+    const accountHealth = buildRetentionSnapshot(state, now()).queue.find((item) => item.leadId === leadId);
+    const codes = new Set(accountHealth?.reasons.map((reason) => reason.code) || []);
+    const name = lead.name?.trim() || 'there';
+    const service = lead.service?.trim() || 'our work together';
+    let body = `Hi ${name}, I wanted to check in personally about ${service}. Is everything on track, and what would be the most helpful next step?`;
+
+    if (codes.has('negative_sentiment') || codes.has('open_issue')) {
+      body = `Hi ${name}, I wanted to check in personally about ${service}. I know there may be an unresolved concern, and I want to make sure we address it properly. What would be the most helpful next step?`;
+    } else if (codes.has('renewal_due')) {
+      body = `Hi ${name}, I wanted to check in before the upcoming renewal for ${service}. Could we review what is working, what needs attention, and the best next step together?`;
+    } else if (codes.has('overdue_follow_up') || codes.has('unanswered_message')) {
+      body = `Hi ${name}, I wanted to make sure my last note about ${service} did not get buried. Is this still a priority, or would a different next step be more useful?`;
+    }
+
+    const message: MessageRecord = {
+      id: makeId('msg'),
+      leadId,
+      direction: 'outbound',
+      status: 'draft',
+      body,
+      createdAt: timestamp,
+    };
+    const task: TaskRecord = {
+      id: makeId('task'),
+      leadId,
+      messageId: message.id,
+      type: 'approve_message',
+      status: 'waiting_approval',
+      dueAt: timestamp,
+      note: 'Review the retention follow-up before sending. External retention outreach always requires human approval.',
+      createdAt: timestamp,
+    };
+
+    state.messages.unshift(message);
+    state.tasks.unshift(task);
+    lead.status = 'waiting_approval';
+    lead.updatedAt = timestamp;
+    addTimeline(leadId, 'Retention follow-up drafted', body);
+    addDecision({
+      leadId,
+      type: 'retention',
+      observation: `${lead.company || lead.name || 'Account'} has a retention risk score of ${accountHealth?.score ?? 0}/100.`,
+      reasoning: accountHealth?.reasons.map((reason) => `${reason.label} (+${reason.weight})`).join(', ') || 'No active risk reason; a health check was requested manually.',
+      action: 'Created a retention follow-up draft behind the human approval gate.',
+      confidence: accountHealth?.score ? 90 : 70,
+    });
+    commit();
+    return structuredClone(message);
+  }
+
+  async function recordRetentionOutcome(leadId: string, input: { outcome: RetentionOutcome; note?: string }) {
+    return lock.run(() => recordRetentionOutcomeInner(leadId, input));
+  }
+
+  async function recordRetentionOutcomeInner(leadId: string, input: { outcome: RetentionOutcome; note?: string }) {
+    const allowed: RetentionOutcome[] = ['recovered', 'monitoring', 'lost', 'no_response'];
+    if (!allowed.includes(input.outcome)) throw errorWithStatus('Invalid retention outcome.', 400);
+    const lead = state.leads.find((item) => item.id === leadId);
+    if (!lead) throw errorWithStatus(`Lead not found: ${leadId}`, 404);
+
+    const timestamp = now().toISOString();
+    const outcome: RetentionOutcomeRecord = {
+      id: makeId('retention_outcome'),
+      leadId,
+      outcome: input.outcome,
+      note: input.note?.trim() || undefined,
+      recordedAt: timestamp,
+    };
+    state.retentionOutcomes ??= [];
+    state.retentionOutcomes.unshift(outcome);
+    if (input.outcome === 'recovered') lead.status = 'contacted';
+    if (input.outcome === 'lost') {
+      lead.status = 'closed';
+      state.tasks = state.tasks.map((task) =>
+        task.leadId === leadId && task.status !== 'done' ? { ...task, status: 'done' as TaskStatus } : task
+      );
+      state.messages = state.messages.filter((message) =>
+        !(message.leadId === leadId && message.direction === 'outbound' && message.status === 'draft')
+      );
+    }
+    lead.updatedAt = timestamp;
+    addTimeline(leadId, `Retention outcome: ${input.outcome.replace('_', ' ')}`, outcome.note || 'Outcome recorded by the owner.');
+    commit();
+    return structuredClone(outcome);
+  }
+
+  return { createLead, approveMessage, runDueTasks, runAutonomousCycle, connectEmailInbox, syncEmailInbox, recordReply, ingestInboundEmail, addTimelineEvent, prepareRetentionDraft, recordRetentionOutcome, getState, reset };
 }

@@ -391,6 +391,22 @@ app.post('/api/leads/:leadId/replies', async (req, res) => {
   res.status(201).json(message);
 });
 
+// ─── Retention workflow ──────────────────────────────────────
+app.post('/api/retention/:leadId/draft', async (req, res) => {
+  const message = await getEngine().prepareRetentionDraft(req.params.leadId);
+  res.status(201).json(message);
+});
+
+app.post('/api/retention/:leadId/outcomes', async (req, res) => {
+  const body = req.body as { outcome?: 'recovered' | 'monitoring' | 'lost' | 'no_response'; note?: string };
+  if (!body.outcome) {
+    res.status(400).json({ error: 'A retention outcome is required.' });
+    return;
+  }
+  const outcome = await getEngine().recordRetentionOutcome(req.params.leadId, { outcome: body.outcome, note: body.note });
+  res.status(201).json(outcome);
+});
+
 // ─── POST /api/worker/run ────────────────────────────────────
 app.post('/api/worker/run', async (req, res) => {
   const body = req.body as { force?: boolean };

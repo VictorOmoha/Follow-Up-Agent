@@ -563,6 +563,25 @@ async function start() {
         return;
       }
 
+      const retentionDraftMatch = match(url.pathname, /^\/api\/retention\/([^/]+)\/draft$/);
+      if (request.method === 'POST' && retentionDraftMatch) {
+        const message = await engine.prepareRetentionDraft(retentionDraftMatch[1]);
+        sendJson(response, 201, message);
+        return;
+      }
+
+      const retentionOutcomeMatch = match(url.pathname, /^\/api\/retention\/([^/]+)\/outcomes$/);
+      if (request.method === 'POST' && retentionOutcomeMatch) {
+        const body = await readJson(request) as { outcome?: 'recovered' | 'monitoring' | 'lost' | 'no_response'; note?: string };
+        if (!body.outcome) {
+          sendJson(response, 400, { error: 'A retention outcome is required.' });
+          return;
+        }
+        const outcome = await engine.recordRetentionOutcome(retentionOutcomeMatch[1], { outcome: body.outcome, note: body.note });
+        sendJson(response, 201, outcome);
+        return;
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/worker/run') {
         const body = await readJson(request) as { force?: boolean };
         const result = await engine.runDueTasks({ force: Boolean(body.force) });

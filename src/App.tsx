@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Bot, Brain, CalendarCheck, CheckCircle2, CircleDollarSign, ClipboardCheck, Clock,
   Flame, Link, MessageSquareReply, Moon, PhoneCall, Play, RefreshCw, Send,
-  Settings, Sun, X, Plus, Inbox, Zap,
+  Settings, ShieldAlert, Sun, X, Plus, Inbox, Zap, HeartHandshake,
 } from 'lucide-react';
 import { type LeadInput, scoreLead } from './lib/agent';
 import './styles.css';
@@ -23,6 +23,9 @@ type LeadRecord = LeadInput & {
   status: 'new' | 'waiting_approval' | 'contacted' | 'needs_human' | 'nurture' | 'closed';
   createdAt: string;
   updatedAt: string;
+  owner?: string;
+  renewalAt?: string;
+  openIssues?: string[];
 };
 
 type MessageRecord = {
@@ -57,12 +60,55 @@ type TimelineRecord = {
 type AgentDecisionRecord = {
   id: string;
   leadId?: string;
-  type: 'triage' | 'draft' | 'schedule' | 'inbox_sync' | 'reply_analysis' | 'autopilot';
+  type: 'triage' | 'draft' | 'schedule' | 'inbox_sync' | 'reply_analysis' | 'autopilot' | 'retention';
   observation: string;
   reasoning: string;
   action: string;
   confidence: number;
   createdAt: string;
+};
+
+type RetentionRiskReason = {
+  code: string;
+  label: string;
+  detail: string;
+  weight: number;
+};
+
+type RetentionQueueItem = {
+  leadId: string;
+  name: string;
+  company: string;
+  owner: string;
+  score: number;
+  level: 'critical' | 'high' | 'watch' | 'healthy';
+  reasons: RetentionRiskReason[];
+  recommendedAction: string;
+  approvalState: 'waiting_approval' | 'scheduled' | 'none';
+  dueAt?: string;
+  draftMessageId?: string;
+  lastActivityAt: string;
+};
+
+type RetentionSnapshot = {
+  generatedAt: string;
+  queue: RetentionQueueItem[];
+  metrics: {
+    totalAccounts: number;
+    atRiskAccounts: number;
+    highRiskAccounts: number;
+    overdueFollowUps: number;
+    waitingApproval: number;
+    recoveredAccounts: number;
+    recoveryRate: number;
+  };
+  outcomes: Array<{
+    id: string;
+    leadId: string;
+    outcome: 'recovered' | 'monitoring' | 'lost' | 'no_response';
+    note?: string;
+    recordedAt: string;
+  }>;
 };
 
 type ConnectedInbox = {
@@ -94,6 +140,7 @@ type AgentState = {
   decisions: AgentDecisionRecord[];
   inboxes: ConnectedInbox[];
   emailMessages: EmailMessageRecord[];
+  retention?: RetentionSnapshot;
   config?: {
     bookingLink: string;
     autopilotEnabled?: boolean;
@@ -121,7 +168,14 @@ type AgentCycleReport = {
   needsHuman: number;
 };
 
-const emptyState: AgentState = { leads: [], messages: [], tasks: [], timeline: [], decisions: [], inboxes: [], emailMessages: [] };
+const emptyRetention: RetentionSnapshot = {
+  generatedAt: '',
+  queue: [],
+  metrics: { totalAccounts: 0, atRiskAccounts: 0, highRiskAccounts: 0, overdueFollowUps: 0, waitingApproval: 0, recoveredAccounts: 0, recoveryRate: 0 },
+  outcomes: [],
+};
+
+const emptyState: AgentState = { leads: [], messages: [], tasks: [], timeline: [], decisions: [], inboxes: [], emailMessages: [], retention: emptyRetention };
 
 const emptyLead: LeadInput & { contact?: string } = {
   name: '',
@@ -181,6 +235,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showNewLeadForm, setShowNewLeadForm] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [workspaceMode, setWorkspaceMode] = useState<'leads' | 'retention'>('leads');
 
   useEffect(() => {
     if (theme === 'light') {
@@ -195,7 +250,7 @@ export default function App() {
     try {
       setError('');
       const nextState = await api<AgentState>('/state');
-      setState({ ...emptyState, ...nextState, decisions: nextState.decisions ?? [] });
+      setState({ ...emptyState, ...nextState, decisions: nextState.decisions ?? [], retention: nextState.retention ?? emptyRetention });
       setBookingLink((current) => current || nextState.config?.bookingLink || '');
       setGmailSyncQuery((current) => current || nextState.config?.gmailSyncQuery || '');
       // Auto-select the most recent lead if none selected or selected lead no longer exists
@@ -224,6 +279,7 @@ export default function App() {
   }, [refresh]);
 
   const selectedLead = state.leads.find((l) => l.id === selectedLeadId) ?? null;
+  const selectedRetention = state.retention?.queue.find((item) => item.leadId === selectedLeadId);
   const activeInbox = state.inboxes[0];
   const unsyncedEmailCount = activeInbox
     ? state.emailMessages.filter((e) => e.inboxId === activeInbox.id && !e.importedAt).length
@@ -244,6 +300,15 @@ export default function App() {
         label: 'Approve & Send Draft',
         icon: <Send size={16} />,
         onClick: () => void approveDraft(),
+        disabled: false,
+        variant: 'primary' as const,
+      };
+    }
+    if (workspaceMode === 'retention' && selectedLead && selectedRetention && selectedRetention.score > 0) {
+      return {
+        label: 'Prepare Retention Draft',
+        icon: <HeartHandshake size={16} />,
+        onClick: () => void prepareRetentionDraft(),
         disabled: false,
         variant: 'primary' as const,
       };
@@ -331,6 +396,21 @@ export default function App() {
   async function recordReply() {
     if (!selectedLead) return;
     await api(`/leads/${selectedLead.id}/replies`, { method: 'POST', body: JSON.stringify({ body: reply }) });
+    await refresh();
+  }
+
+  async function prepareRetentionDraft() {
+    if (!selectedLead) return;
+    await api(`/retention/${selectedLead.id}/draft`, { method: 'POST' });
+    await refresh();
+  }
+
+  async function recordRetentionOutcome(outcome: 'recovered' | 'monitoring' | 'lost' | 'no_response') {
+    if (!selectedLead) return;
+    await api(`/retention/${selectedLead.id}/outcomes`, {
+      method: 'POST',
+      body: JSON.stringify({ outcome }),
+    });
     await refresh();
   }
 
@@ -433,6 +513,13 @@ export default function App() {
         </div>
 
         <div className="header-status">
+          <button
+            className={`button sm ${workspaceMode === 'retention' ? 'primary' : 'secondary'}`}
+            type="button"
+            onClick={() => setWorkspaceMode(workspaceMode === 'retention' ? 'leads' : 'retention')}
+          >
+            <ShieldAlert size={14} /> {workspaceMode === 'retention' ? 'Lead workflow' : 'Retention'}
+          </button>
           <a href="/demo-guide.html" className="button secondary sm" target="_blank" rel="noreferrer">Demo guide</a>
           <button
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
@@ -462,7 +549,7 @@ export default function App() {
         {/* Column 1: Lead List + Stats */}
         <aside className="workspace-column lead-list-column">
           <div className="lead-list-header">
-            <h2>Leads</h2>
+            <h2>{workspaceMode === 'retention' ? 'Retention Queue' : 'Leads'}</h2>
             <button
               className="button primary sm"
               type="button"
@@ -473,47 +560,64 @@ export default function App() {
           </div>
 
           {/* Stat cards replacing the old header metrics + digest */}
-          <div className="sidebar-stats">
-            <div className="stat-card stat-money">
-              <CircleDollarSign size={14} />
-              <div>
-                <strong>${stats.moneyOnTable.toLocaleString()}</strong>
-                <span>on table</span>
+          {workspaceMode === 'retention' ? (
+            <div className="sidebar-stats">
+              <div className="stat-card stat-money">
+                <ShieldAlert size={14} />
+                <div><strong>{state.retention?.metrics.atRiskAccounts ?? 0}</strong><span>accounts at risk</span></div>
+              </div>
+              <div className="stat-card-row">
+                <div className="stat-card stat-hot"><Flame size={12} /><strong>{state.retention?.metrics.highRiskAccounts ?? 0}</strong><span>high risk</span></div>
+                <div className="stat-card stat-stalled"><Clock size={12} /><strong>{state.retention?.metrics.overdueFollowUps ?? 0}</strong><span>overdue</span></div>
+              </div>
+              <div className="stat-card-row">
+                <div className="stat-card stat-approval"><PhoneCall size={12} /><strong>{state.retention?.metrics.waitingApproval ?? 0}</strong><span>approval</span></div>
+                <div className="stat-card stat-scheduled"><HeartHandshake size={12} /><strong>{state.retention?.metrics.recoveryRate ?? 0}%</strong><span>recovery</span></div>
               </div>
             </div>
-            <div className="stat-card-row">
-              <div className="stat-card stat-hot">
-                <Flame size={12} />
-                <strong>{stats.hotLeadsCount}</strong>
-                <span>hot</span>
+          ) : (
+            <div className="sidebar-stats">
+              <div className="stat-card stat-money">
+                <CircleDollarSign size={14} />
+                <div><strong>${stats.moneyOnTable.toLocaleString()}</strong><span>on table</span></div>
               </div>
-              <div className="stat-card stat-stalled">
-                <Clock size={12} />
-                <strong>{stats.stalledLeadsCount}</strong>
-                <span>stalled</span>
+              <div className="stat-card-row">
+                <div className="stat-card stat-hot"><Flame size={12} /><strong>{stats.hotLeadsCount}</strong><span>hot</span></div>
+                <div className="stat-card stat-stalled"><Clock size={12} /><strong>{stats.stalledLeadsCount}</strong><span>stalled</span></div>
               </div>
-            </div>
-            <div className="stat-card-row">
-              <div className="stat-card stat-approval">
-                <PhoneCall size={12} />
-                <strong>{stats.waitingApproval}</strong>
-                <span>approval</span>
-              </div>
-              <div className="stat-card stat-scheduled">
-                <CalendarCheck size={12} />
-                <strong>{stats.scheduled}</strong>
-                <span>scheduled</span>
+              <div className="stat-card-row">
+                <div className="stat-card stat-approval"><PhoneCall size={12} /><strong>{stats.waitingApproval}</strong><span>approval</span></div>
+                <div className="stat-card stat-scheduled"><CalendarCheck size={12} /><strong>{stats.scheduled}</strong><span>scheduled</span></div>
               </div>
             </div>
-          </div>
+          )}
 
           <div className="lead-list">
-            {state.leads.length === 0 ? (
+            {(workspaceMode === 'retention' ? state.retention?.queue.length === 0 : state.leads.length === 0) ? (
               <div className="lead-list-empty">
                 <Bot size={28} />
-                <p>No leads yet</p>
-                <small>Create a lead to see the agent in action</small>
+                <p>{workspaceMode === 'retention' ? 'No active accounts' : 'No leads yet'}</p>
+                <small>{workspaceMode === 'retention' ? 'Active leads will appear here with transparent health scores' : 'Create a lead to see the agent in action'}</small>
               </div>
+            ) : workspaceMode === 'retention' ? (
+              state.retention?.queue.map((item) => (
+                <button
+                  key={item.leadId}
+                  className={`lead-list-item retention-queue-item ${selectedLeadId === item.leadId ? 'selected' : ''}`}
+                  onClick={() => setSelectedLeadId(item.leadId)}
+                  type="button"
+                >
+                  <div className="lead-list-item-row">
+                    <strong>{item.company}</strong>
+                    <span className={`risk-score ${item.level}`}>{item.score}</span>
+                  </div>
+                  <div className="lead-list-item-meta">
+                    <span className={`badge risk-${item.level}`}>{item.level}</span>
+                    <span className="retention-owner">{item.owner}</span>
+                  </div>
+                  <small>{item.reasons[0]?.label || 'Healthy - monitoring'}</small>
+                </button>
+              ))
             ) : (
               state.leads.map((l) => {
                 const temp = scoreLead(l).temperature;
@@ -561,6 +665,31 @@ export default function App() {
                     <span className="lead-pill"><span>Channel</span><strong>{selectedLead.channel}</strong></span>
                   </div>
                 </div>
+
+                {workspaceMode === 'retention' && selectedRetention && (
+                  <section className={`account-health-card risk-${selectedRetention.level}`}>
+                    <div className="account-health-heading">
+                      <div>
+                        <span>Account health</span>
+                        <strong>{selectedRetention.level} risk · {selectedRetention.score}/100</strong>
+                      </div>
+                      <small>Owner: {selectedRetention.owner}</small>
+                    </div>
+                    <div className="risk-reason-chips">
+                      {selectedRetention.reasons.length ? selectedRetention.reasons.map((reason) => (
+                        <span key={reason.code} title={reason.detail}>{reason.label} +{reason.weight}</span>
+                      )) : <span className="healthy-chip">No active risk signals</span>}
+                    </div>
+                    <p>{selectedRetention.recommendedAction}</p>
+                    <div className="retention-outcomes">
+                      <span>Record outcome:</span>
+                      <button type="button" onClick={() => void recordRetentionOutcome('recovered')}>Recovered</button>
+                      <button type="button" onClick={() => void recordRetentionOutcome('monitoring')}>Monitoring</button>
+                      <button type="button" onClick={() => void recordRetentionOutcome('no_response')}>No response</button>
+                      <button type="button" onClick={() => void recordRetentionOutcome('lost')}>Lost</button>
+                    </div>
+                  </section>
+                )}
 
                 {/* Conversation thread - full width */}
                 <div className="chat-thread-section">
@@ -705,6 +834,20 @@ export default function App() {
                     <strong>{selectedLeadDecision.observation}</strong>
                     <p>{selectedLeadDecision.reasoning}</p>
                     <small>{selectedLeadDecision.action}</small>
+                  </div>
+                </div>
+              )}
+
+              {workspaceMode === 'retention' && selectedRetention && (
+                <div className="activity-section">
+                  <span className="activity-section-label">Retention Risk</span>
+                  <div className="timeline-list">
+                    {selectedRetention.reasons.length ? selectedRetention.reasons.map((reason) => (
+                      <div key={reason.code} className="timeline-item risk-timeline-item">
+                        <ShieldAlert size={14} />
+                        <div><strong>{reason.label} (+{reason.weight})</strong><p>{reason.detail}</p></div>
+                      </div>
+                    )) : <p className="empty-state">No current retention risk signals.</p>}
                   </div>
                 </div>
               )}

@@ -1,4 +1,5 @@
 import { type AgentState, type ConnectedInbox } from './agent-engine.js';
+import { buildRetentionSnapshot, type RetentionSnapshot } from './retention.js';
 
 type PublicInbox = Omit<ConnectedInbox, 'credentials'> & {
   credentials?: never;
@@ -12,6 +13,7 @@ export type PublicAgentState = Omit<AgentState, 'inboxes' | 'config'> & {
     geminiApiKeyConfigured?: boolean;
     gmailSyncQuery?: string;
   };
+  retention: RetentionSnapshot;
 };
 
 export function toPublicInbox(inbox: ConnectedInbox): PublicInbox {
@@ -20,7 +22,7 @@ export function toPublicInbox(inbox: ConnectedInbox): PublicInbox {
   return publicInbox as PublicInbox;
 }
 
-export function toPublicAgentState(state: AgentState): PublicAgentState {
+export function toPublicAgentState(state: AgentState, now: Date = new Date()): PublicAgentState {
   return {
     ...state,
     inboxes: state.inboxes.map(toPublicInbox),
@@ -32,5 +34,6 @@ export function toPublicAgentState(state: AgentState): PublicAgentState {
           gmailSyncQuery: state.config.gmailSyncQuery,
         }
       : undefined,
+    retention: buildRetentionSnapshot(state, now),
   };
 }

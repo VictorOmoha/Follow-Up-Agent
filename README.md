@@ -62,6 +62,20 @@ The [`build-week-gpt56`](https://github.com/VictorOmoha/Follow-Up-Agent/tree/bui
 
 Only the additions in this section are presented as Build Week work.
 
+## Post-Build Week retention extension
+
+The branch now also includes the first release of a Client Retention and Follow-Up System. This work was added after Build Week and is not presented as challenge-period work.
+
+- Deterministic account-health scoring from overdue follow-ups, unanswered messages, negative sentiment, open issues, renewals, and inactivity
+- A retention priority queue ordered by risk and due date
+- Visible risk reasons and weights instead of a black-box score
+- Account owner, recommended next action, approval state, and due date
+- Recovery drafts that always remain human-approved, even when lead autopilot is enabled
+- Persisted recovered, monitoring, no-response, and lost outcomes
+- Dashboard metrics for accounts at risk, high-risk accounts, overdue work, approvals, and recovery rate
+
+The extension reuses the existing lead, message, task, timeline, decision, and approval flow. It does not replace inbound lead capture or create a second workflow engine. See [`docs/retention-first-release.md`](docs/retention-first-release.md).
+
 ## How GPT-5.6 is used
 
 The first high-leverage decision in a follow-up workflow is converting an inconsistent inbound message into reliable structured data. GPT-5.6 receives the message, optional subject, and sender metadata through the Responses API and returns:
@@ -100,6 +114,8 @@ Lead extraction orchestrator
             v
 Agent engine
   scoring -> classification -> follow-up plan -> approval/autopilot
+            |
+            +----> retention health -> priority queue -> approval-ready recovery draft
             |
             +----> Firestore state and activity timeline
             |
@@ -292,6 +308,7 @@ firebase emulators:start --only functions,firestore,hosting
 - Lead deduplication and E.164-tolerant phone matching
 - Firestore persistence and scheduled follow-up workers
 - Activity timeline, owner decision log, daily digest, and pipeline-value dashboard
+- Transparent account-health scoring, retention priority queue, and recovery outcome tracking
 - Authentication hooks, webhook authentication, rate limiting, and public-state redaction
 
 ## Privacy and safety
@@ -313,6 +330,7 @@ functions/src/gemini.ts       Extraction orchestration and fallbacks
 functions/src/index.ts        Webhook routes and provider attribution
 functions/src/firebase.ts     Firebase function and secret bindings
 functions/src/agent-engine.ts Existing workflow and state engine
+functions/src/retention.ts    Deterministic account-health evaluator and retention metrics
 src/                          React owner dashboard
 public/demo-guide.html        Shareable product walkthrough
 ```

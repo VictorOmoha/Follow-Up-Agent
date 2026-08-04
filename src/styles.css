@@ -704,6 +704,133 @@ textarea {
   border: 1px solid rgba(var(--success-rgb), 0.2);
 }
 
+.badge.risk-critical {
+  background: rgba(var(--danger-rgb), 0.16);
+  color: #fecaca;
+  border: 1px solid rgba(var(--danger-rgb), 0.35);
+}
+.badge.risk-high {
+  background: rgba(var(--warning-rgb), 0.15);
+  color: #fde68a;
+  border: 1px solid rgba(var(--warning-rgb), 0.3);
+}
+.badge.risk-watch {
+  background: rgba(56, 189, 248, 0.12);
+  color: #7dd3fc;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+}
+.badge.risk-healthy {
+  background: rgba(var(--success-rgb), 0.12);
+  color: #6ee7b7;
+  border: 1px solid rgba(var(--success-rgb), 0.25);
+}
+.risk-score {
+  min-width: 28px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.68rem;
+  font-weight: 800;
+  background: var(--bg-card);
+  color: var(--text-default);
+  border: 1px solid var(--border-color);
+}
+.risk-score.critical { color: #fca5a5; border-color: rgba(var(--danger-rgb), 0.35); }
+.risk-score.high { color: #fde047; border-color: rgba(var(--warning-rgb), 0.35); }
+.risk-score.watch { color: #7dd3fc; border-color: rgba(56, 189, 248, 0.3); }
+.risk-score.healthy { color: #6ee7b7; border-color: rgba(var(--success-rgb), 0.3); }
+.retention-owner {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  align-self: center;
+}
+
+.account-health-card {
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+}
+.account-health-card.risk-critical { border-color: rgba(var(--danger-rgb), 0.35); }
+.account-health-card.risk-high { border-color: rgba(var(--warning-rgb), 0.3); }
+.account-health-card.risk-watch { border-color: rgba(56, 189, 248, 0.25); }
+.account-health-card.risk-healthy { border-color: rgba(var(--success-rgb), 0.25); }
+.account-health-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.account-health-heading span {
+  display: block;
+  color: var(--primary-light);
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.account-health-heading strong {
+  color: var(--text-strong);
+  font-size: 0.82rem;
+  text-transform: capitalize;
+}
+.account-health-heading small {
+  color: var(--text-muted);
+  font-size: 0.65rem;
+}
+.account-health-card > p {
+  margin: 7px 0;
+  color: var(--text-default);
+  font-size: 0.72rem;
+}
+.risk-reason-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+.risk-reason-chips span {
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #fde68a;
+  background: rgba(var(--warning-rgb), 0.08);
+  border: 1px solid rgba(var(--warning-rgb), 0.18);
+  font-size: 0.62rem;
+  font-weight: 600;
+}
+.risk-reason-chips span.healthy-chip {
+  color: #6ee7b7;
+  background: rgba(var(--success-rgb), 0.08);
+  border-color: rgba(var(--success-rgb), 0.18);
+}
+.retention-outcomes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+.retention-outcomes > span {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  margin-right: 2px;
+}
+.retention-outcomes button {
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-panel);
+  color: var(--text-default);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.62rem;
+}
+.retention-outcomes button:hover { border-color: var(--primary-color); }
+.risk-timeline-item svg { color: var(--warning-color); }
+
 /* Activity Panel (right column) */
 .activity-column {
   width: 340px;
