@@ -99,6 +99,9 @@ type AgentState = {
     autopilotEnabled?: boolean;
     geminiApiKeyConfigured?: boolean;
     gmailSyncQuery?: string;
+    features?: {
+      retentionPhase1: boolean;
+    };
   };
 };
 

@@ -11,6 +11,9 @@ export type PublicAgentState = Omit<AgentState, 'inboxes' | 'config'> & {
     autopilotEnabled?: boolean;
     geminiApiKeyConfigured?: boolean;
     gmailSyncQuery?: string;
+    features?: {
+      retentionPhase1: boolean;
+    };
   };
 };
 
@@ -30,6 +33,9 @@ export function toPublicAgentState(state: AgentState): PublicAgentState {
           autopilotEnabled: state.config.autopilotEnabled,
           geminiApiKeyConfigured: Boolean(state.config.geminiApiKey?.trim()),
           gmailSyncQuery: state.config.gmailSyncQuery,
+          features: {
+            retentionPhase1: state.config.features?.retentionPhase1 ?? false,
+          },
         }
       : undefined,
   };

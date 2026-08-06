@@ -16,6 +16,10 @@ type TestState = {
     bookingLink: string;
     autopilotEnabled?: boolean;
     geminiApiKeyConfigured?: boolean;
+    gmailSyncQuery?: string;
+    features?: {
+      retentionPhase1: boolean;
+    };
   };
 };
 
@@ -30,6 +34,7 @@ function makeState(): TestState {
     emailMessages: [],
     config: {
       bookingLink: 'https://calendar.google.com/calendar/appointments/schedules/demo',
+      features: { retentionPhase1: false },
     },
   };
 }
@@ -109,6 +114,8 @@ function installApiMock() {
         bookingLink: body.bookingLink ?? state.config?.bookingLink ?? 'https://calendar.google.com/calendar/appointments/schedules/demo',
         autopilotEnabled: body.autopilotEnabled ?? state.config?.autopilotEnabled ?? false,
         geminiApiKeyConfigured: body.geminiApiKey !== undefined ? Boolean(body.geminiApiKey) : state.config?.geminiApiKeyConfigured,
+        gmailSyncQuery: body.gmailSyncQuery ?? state.config?.gmailSyncQuery,
+        features: state.config?.features ?? { retentionPhase1: false },
       };
       return Response.json(state);
     }
