@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createAgentEngine, phoneDigitsMatch } from './agent-engine';
 
+const fixedNow = new Date('2026-08-06T17:00:00.000Z');
+
 const leadInput = {
   name: 'Ada Okafor',
   company: 'Ada Legal Group',
@@ -25,6 +27,21 @@ describe('phoneDigitsMatch', () => {
 });
 
 describe('real follow-up agent engine', () => {
+  it('defaults the Phase 1 retention feature flag off for fresh and legacy state', () => {
+    const fresh = createAgentEngine({ now: () => fixedNow });
+    expect(fresh.getState().config?.features?.retentionPhase1).toBe(false);
+
+    const legacy = createAgentEngine({
+      now: () => fixedNow,
+      initialState: {
+        leads: [], messages: [], tasks: [], timeline: [], decisions: [], inboxes: [], emailMessages: [],
+        config: { bookingLink: 'https://example.com', autopilotEnabled: true },
+      },
+    });
+    expect(legacy.getState().config?.features?.retentionPhase1).toBe(false);
+    expect(legacy.getState().config?.autopilotEnabled).toBe(true);
+  });
+
   it('creates a persisted agent run with a draft message waiting for approval', async () => {
     const engine = createAgentEngine({ now: () => new Date('2026-05-17T20:00:00.000Z') });
 

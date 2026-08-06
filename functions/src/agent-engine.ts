@@ -86,6 +86,14 @@ export type AgentDecisionRecord = {
   createdAt: string;
 };
 
+export type AgentFeatureFlags = {
+  /**
+   * FU-RET-01 isolation gate. Retention remains read-only and unreachable while
+   * false; later tickets must gate every retention route, job, and mutation.
+   */
+  retentionPhase1: boolean;
+};
+
 export type AgentState = {
   leads: LeadRecord[];
   messages: MessageRecord[];
@@ -101,6 +109,7 @@ export type AgentState = {
     // Gmail search query used by inbox sync. Defaults to 'is:unread'; set to
     // e.g. 'is:unread label:leads' to only import labeled intake mail.
     gmailSyncQuery?: string;
+    features?: AgentFeatureFlags;
   };
 };
 
@@ -122,14 +131,22 @@ type EngineOptions = {
 const defaultConfig = () => ({
   bookingLink: process.env.OWNER_BOOKING_LINK || process.env.BOOKING_LINK || 'https://calendar.google.com/calendar/appointments/schedules/demo',
   autopilotEnabled: false,
+  features: {
+    retentionPhase1: false,
+  },
 });
 
 const emptyState = (): AgentState => ({ leads: [], messages: [], tasks: [], timeline: [], decisions: [], inboxes: [], emailMessages: [], config: defaultConfig() });
 
 function normalizeState(state: Partial<AgentState>): AgentState {
+  const defaults = defaultConfig();
   const config = {
-    ...defaultConfig(),
+    ...defaults,
     ...(state.config ?? {}),
+    features: {
+      ...defaults.features,
+      ...(state.config?.features ?? {}),
+    },
   };
 
   return {
