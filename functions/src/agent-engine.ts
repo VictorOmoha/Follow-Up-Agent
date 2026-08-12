@@ -125,7 +125,7 @@ type EngineOptions = {
   now?: () => Date;
   initialState?: AgentState;
   tenantId?: string;
-  onChange?: (state: AgentState) => void;
+  onChange?: (state: AgentState) => void | Promise<void>;
 };
 
 const defaultConfig = () => ({
@@ -226,13 +226,22 @@ export function createAgentEngine(options: EngineOptions = {}) {
   const now = options.now ?? (() => new Date());
   const tenantId = options.tenantId || 'default';
   const lock = new AsyncLock();
+  let persistenceQueue: Promise<void> = Promise.resolve();
 
   if (!state.config) {
     state.config = defaultConfig();
   }
 
   function commit() {
-    options.onChange?.(getState());
+    if (!options.onChange) return;
+    const snapshot = getState();
+    persistenceQueue = persistenceQueue.then(async () => {
+      await options.onChange?.(snapshot);
+    });
+  }
+
+  function flushPersistence() {
+    return persistenceQueue;
   }
 
   function getState(): AgentState {
@@ -316,20 +325,32 @@ export function createAgentEngine(options: EngineOptions = {}) {
 
     // ─── Lead deduplication ───────────────────────────────────
     // Match by phone number (digits-only comparison) or email address.
-    // If a matching lead exists and is not closed, update it instead of
-    // creating a duplicate.
+    // A closed matching lead is retained as a suppression record. Never create
+    // a fresh outreach sequence for a contact who previously opted out.
     const newContact = input.contact || '';
     const newContactEmail = newContact.toLowerCase().trim();
     const newContactIsEmail = newContactEmail.includes('@');
     if (newContact.trim()) {
       const existing = state.leads.find((l) => {
-        if (l.status === 'closed') return false;
         const existingContact = l.contact || '';
         const existingEmail = existingContact.toLowerCase().trim();
         if (newContactIsEmail) return existingEmail === newContactEmail;
         return phoneDigitsMatch(newContact, existingContact);
       });
       if (existing) {
+        if (existing.status === 'closed') {
+          addTimeline(existing.id, 'Suppressed repeat intake', 'A repeat intake matched a closed contact. No new outreach was created.');
+          addDecision({
+            leadId: existing.id,
+            type: 'triage',
+            observation: 'A repeat intake matched a contact with a closed suppression record.',
+            reasoning: 'A prior opt-out must remain effective across later webhook, email, and form intake.',
+            action: 'Kept the lead closed and suppressed a new follow-up sequence.',
+            confidence: 99,
+          });
+          commit();
+          return { lead: structuredClone(existing), message: undefined, task: undefined };
+        }
         // Update the existing lead with any new info
         if (input.service && input.service !== 'General Inquiry') existing.service = input.service;
         if (input.budget && input.budget !== 'unknown') existing.budget = input.budget;
@@ -441,6 +462,12 @@ export function createAgentEngine(options: EngineOptions = {}) {
     if (!message) throw errorWithStatus(`Message not found: ${messageId}`, 404);
     const lead = state.leads.find((item) => item.id === message.leadId);
     if (!lead) throw errorWithStatus(`Lead not found: ${message.leadId}`, 404);
+    if (message.direction !== 'outbound' || message.status !== 'draft') {
+      throw errorWithStatus(`Message is not awaiting approval: ${messageId}`, 409);
+    }
+    if (lead.status === 'closed' || lead.status === 'needs_human') {
+      throw errorWithStatus(`Lead is not eligible for an automated send: ${lead.id}`, 409);
+    }
 
     message.status = 'sent';
     message.sentAt = timestamp;
@@ -827,6 +854,21 @@ export function createAgentEngine(options: EngineOptions = {}) {
     };
     state.messages.unshift(message);
 
+    if (lead.status === 'closed') {
+      addTimeline(leadId, 'Inbound message suppressed', 'Received another message from a closed contact. Automated outreach remains disabled.');
+      addDecision({
+        leadId,
+        type: 'reply_analysis',
+        observation: 'A closed contact sent another inbound message.',
+        reasoning: 'Closed contacts remain suppressed unless an owner performs an explicit resubscription workflow.',
+        action: 'Recorded the inbound message without reopening the lead or creating outbound work.',
+        confidence: 99,
+      });
+      lead.updatedAt = timestamp;
+      commit();
+      return structuredClone(message);
+    }
+
     const history = state.messages
       .filter((m) => m.leadId === leadId && m.id !== message.id)
       .slice()
@@ -859,15 +901,28 @@ export function createAgentEngine(options: EngineOptions = {}) {
       });
     } else if (analysis.isBookingIntent) {
       lead.status = 'needs_human';
-      state.tasks.unshift({
-        id: makeId('task'),
-        leadId,
-        type: 'owner_review',
-        status: 'waiting_approval',
-        dueAt: timestamp,
-        note: `Lead replied with booking intent: "${body}"`,
-        createdAt: timestamp,
-      });
+      state.tasks = state.tasks.map((task) =>
+        task.leadId === leadId && (task.status === 'scheduled' || (task.type === 'approve_message' && task.status === 'waiting_approval'))
+          ? { ...task, status: 'done' as TaskStatus }
+          : task
+      );
+      state.messages = state.messages.filter((message) =>
+        !(message.leadId === leadId && message.direction === 'outbound' && message.status === 'draft')
+      );
+      const hasOpenOwnerReview = state.tasks.some((task) =>
+        task.leadId === leadId && task.type === 'owner_review' && task.status === 'waiting_approval'
+      );
+      if (!hasOpenOwnerReview) {
+        state.tasks.unshift({
+          id: makeId('task'),
+          leadId,
+          type: 'owner_review',
+          status: 'waiting_approval',
+          dueAt: timestamp,
+          note: `Lead replied with booking intent: "${body}"`,
+          createdAt: timestamp,
+        });
+      }
       addTimeline(leadId, 'Lead replied - human review needed', body);
       addDecision({
         leadId,
@@ -887,7 +942,7 @@ export function createAgentEngine(options: EngineOptions = {}) {
         !(m.leadId === leadId && m.direction === 'outbound' && m.status === 'draft')
       );
       state.tasks = state.tasks.map((t) =>
-        t.leadId === leadId && t.type === 'approve_message' && t.status === 'waiting_approval'
+        t.leadId === leadId && (t.status === 'scheduled' || (t.type === 'approve_message' && t.status === 'waiting_approval'))
           ? { ...t, status: 'done' as TaskStatus }
           : t
       );
@@ -1000,5 +1055,5 @@ export function createAgentEngine(options: EngineOptions = {}) {
     });
   }
 
-  return { createLead, approveMessage, runDueTasks, runAutonomousCycle, connectEmailInbox, syncEmailInbox, recordReply, ingestInboundEmail, addTimelineEvent, getState, reset };
+  return { createLead, approveMessage, runDueTasks, runAutonomousCycle, connectEmailInbox, syncEmailInbox, recordReply, ingestInboundEmail, addTimelineEvent, getState, flushPersistence, reset };
 }

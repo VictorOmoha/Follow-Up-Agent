@@ -58,7 +58,7 @@ export async function sendEmail(
 
       if (res.ok) {
         const data = await res.json() as { id: string };
-        console.log(`[EMAIL GMAIL] Sent to ${to}, ID: ${data.id}`);
+        console.log(`[EMAIL GMAIL] Message sent, ID: ${data.id}`);
         return { success: true, provider: 'gmail', messageId: data.id };
       } else {
         const errText = await res.text();
@@ -80,7 +80,7 @@ export async function sendEmail(
         subject,
         text: body,
       });
-      console.log(`[EMAIL SMTP] Sent to ${to}, ID: ${info.messageId}`);
+      console.log(`[EMAIL SMTP] Message sent, ID: ${info.messageId}`);
       return { success: true, provider: 'smtp', messageId: info.messageId };
     } catch (error) {
       const err = error as Error;
@@ -90,6 +90,6 @@ export async function sendEmail(
   }
 
   // Dry-run fallback
-  console.log(`[EMAIL DRY RUN] To: ${to} | Subject: ${subject} | Body: ${body}`);
+  console.log('[EMAIL DRY RUN] Simulated outbound email; recipient and content omitted.');
   return { success: true, provider: 'dry-run', messageId: 'mock_email_dry_run' };
 }

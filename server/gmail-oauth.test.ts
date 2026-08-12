@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildGmailOAuthStart } from './gmail-oauth';
+import { buildGmailOAuthStart, escapeHtml } from './gmail-oauth';
 
 describe('gmail oauth readiness', () => {
+  it('escapes untrusted values before rendering mock OAuth HTML', () => {
+    expect(escapeHtml('<img src=x onerror="alert(1)">')).toBe('&lt;img src=x onerror=&quot;alert(1)&quot;&gt;');
+  });
+
   it('returns setup_required without secrets when Gmail client id is missing', () => {
     const result = buildGmailOAuthStart({});
 

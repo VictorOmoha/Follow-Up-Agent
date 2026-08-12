@@ -73,6 +73,17 @@ describe('real follow-up agent engine', () => {
     expect(followUp?.dueAt).toBe('2026-05-17T20:05:00.000Z');
   });
 
+  it('rejects duplicate approval so a message cannot send or schedule twice', async () => {
+    const engine = createAgentEngine({ now: () => new Date('2026-05-17T20:00:00.000Z') });
+    const run = await engine.createLead(leadInput);
+    await engine.approveMessage(run.message.id);
+
+    await expect(engine.approveMessage(run.message.id)).rejects.toMatchObject({ statusCode: 409 });
+    const state = engine.getState();
+    expect(state.messages.filter((message) => message.id === run.message.id && message.status === 'sent')).toHaveLength(1);
+    expect(state.tasks.filter((task) => task.type === 'follow_up' && task.status === 'scheduled')).toHaveLength(1);
+  });
+
   it('walks the plan cadence (5min, 2h, 24h, 72h) and moves to nurture after the final step', async () => {
     const current = { value: new Date('2026-05-17T20:00:00.000Z') };
     const engine = createAgentEngine({ now: () => current.value });
@@ -131,6 +142,23 @@ describe('real follow-up agent engine', () => {
     expect(state.leads[0].status).toBe('closed');
     expect(state.messages.filter((message) => message.status === 'draft')).toHaveLength(0);
     expect(state.tasks.filter((task) => task.status === 'waiting_approval')).toHaveLength(0);
+  });
+
+  it('keeps opt-out suppression durable across repeat intake and later inbound messages', async () => {
+    const engine = createAgentEngine({ now: () => new Date('2026-05-17T20:00:00.000Z') });
+    const run = await engine.createLead(leadInput);
+    await engine.recordReply(run.lead.id, 'STOP');
+
+    const repeated = await engine.createLead({ ...leadInput, service: 'another request' });
+    await engine.recordReply(run.lead.id, 'I have another question');
+    const state = engine.getState();
+
+    expect(repeated.lead.status).toBe('closed');
+    expect(state.leads).toHaveLength(1);
+    expect(state.leads[0].status).toBe('closed');
+    expect(state.messages.filter((message) => message.direction === 'outbound' && message.status === 'draft')).toHaveLength(0);
+    expect(state.tasks.filter((task) => task.status === 'scheduled' || task.status === 'waiting_approval')).toHaveLength(0);
+    expect(state.timeline).toContainEqual(expect.objectContaining({ label: 'Suppressed repeat intake' }));
   });
 
   it('routes inbox emails from known contacts through reply analysis instead of lead extraction', async () => {
@@ -264,6 +292,34 @@ describe('real follow-up agent engine', () => {
     expect(state.tasks).toContainEqual(expect.objectContaining({ type: 'owner_review', status: 'waiting_approval' }));
     expect(state.timeline).toContainEqual(expect.objectContaining({ label: 'Lead replied - human review needed' }));
     expect(state.decisions).toContainEqual(expect.objectContaining({ type: 'reply_analysis', action: 'Paused nurture and created an owner review task.' }));
+  });
+
+  it('cancels stale automated work and keeps one owner review when booking replies repeat', async () => {
+    const engine = createAgentEngine({ now: () => new Date('2026-05-17T20:00:00.000Z') });
+    const run = await engine.createLead(leadInput);
+
+    await engine.recordReply(run.lead.id, 'Yes, tomorrow at 10 works for me.');
+    await engine.recordReply(run.lead.id, 'Confirmed, please book the call.');
+    const state = engine.getState();
+
+    expect(state.messages.filter((message) => message.status === 'draft')).toHaveLength(0);
+    expect(state.tasks.filter((task) => task.type === 'approve_message' && task.status === 'waiting_approval')).toHaveLength(0);
+    expect(state.tasks.filter((task) => task.type === 'owner_review' && task.status === 'waiting_approval')).toHaveLength(1);
+  });
+
+  it('cancels the no-reply cadence when an ordinary reply creates a reply draft', async () => {
+    const engine = createAgentEngine({ now: () => new Date('2026-05-17T20:00:00.000Z') });
+    const run = await engine.createLead(leadInput);
+    await engine.approveMessage(run.message.id);
+
+    await engine.recordReply(run.lead.id, 'Can you tell me more about the process?');
+    const beforeWorker = engine.getState();
+    expect(beforeWorker.tasks.filter((task) => task.type === 'follow_up' && task.status === 'scheduled')).toHaveLength(0);
+    expect(beforeWorker.messages.filter((message) => message.status === 'draft')).toHaveLength(1);
+
+    const worker = await engine.runDueTasks({ force: true });
+    expect(worker.createdDrafts).toBe(0);
+    expect(engine.getState().messages.filter((message) => message.status === 'draft')).toHaveLength(1);
   });
 
   it('runs an autonomous cycle across inbox intake, due follow-ups, and owner approvals', async () => {

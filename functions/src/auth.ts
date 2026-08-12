@@ -15,9 +15,30 @@ export function isAuthEnabled(): boolean {
   return !!process.env.AGENT_API_KEY?.trim();
 }
 
+export function isCloudEnvironment(env: NodeJS.ProcessEnv = process.env): boolean {
+  return !!(env.FUNCTION_TARGET || env.FIREBASE_CONFIG || env.K_SERVICE);
+}
+
+export function warnIfInsecureAuthPosture(env: NodeJS.ProcessEnv = process.env): boolean {
+  const isCloud = isCloudEnvironment(env);
+  if (isCloud && !env.AGENT_API_KEY?.trim()) {
+    console.warn(
+      '[AUTH] Production API is unauthenticated because AGENT_API_KEY is unset. ' +
+      'Protect the dashboard with user authentication before customer use.'
+    );
+    return true;
+  }
+  return false;
+}
+
 export function checkAuth(request: { headers: Record<string, string | string[] | undefined>; url: string }): { ok: boolean; status?: number; error?: string } {
   const apiKey = process.env.AGENT_API_KEY?.trim();
-  if (!apiKey) return { ok: true }; // Auth disabled
+  if (!apiKey) {
+    if (isCloudEnvironment()) {
+      return { ok: false, status: 503, error: 'API authentication is not configured' };
+    }
+    return { ok: true }; // Auth disabled for local development only
+  }
 
   // Check header
   const headerKey = request.headers['agent-api-key'] as string | undefined;

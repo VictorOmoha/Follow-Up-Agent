@@ -1,11 +1,12 @@
 import express, { type Request, type Response } from 'express';
 import { createAgentEngine, phoneDigitsMatch } from './agent-engine.js';
-import { buildGmailOAuthStartFromEnv } from './gmail-oauth.js';
+import { buildGmailOAuthStartFromEnv, escapeHtml } from './gmail-oauth.js';
 import { loadStateFromFirestore, saveStateToFirestore } from './db.js';
 import { toPublicAgentState, toPublicInbox } from './public-state.js';
 import { extractLeadFromText } from './gemini.js';
-import { checkAuth, checkWebhookAuth } from './auth.js';
+import { checkAuth, checkWebhookAuth, isCloudEnvironment, warnIfInsecureAuthPosture } from './auth.js';
 import { createRateLimiter } from './rate-limiter.js';
+import { validateTwilioSignature } from './twilio.js';
 
 // Load .env file programmatically (built-in Node 20.12+)
 if (typeof process.loadEnvFile === 'function') {
@@ -30,6 +31,7 @@ let engine: ReturnType<typeof createAgentEngine> | undefined;
 const enginePromise = initializeEngine();
 
 async function initializeEngine() {
+  warnIfInsecureAuthPosture();
   console.log('Loading state from Firestore...');
   const firestoreState = await loadStateFromFirestore();
   if (firestoreState) {
@@ -152,7 +154,7 @@ app.get('/api/inboxes/gmail/mock-auth', (req, res) => {
       <div class="card">
         <h1>Mock Google Sign-In</h1>
         <p>Omoha Follow-Up Agent is requesting permission to access your Google Account:</p>
-        <div class="email-badge">${email || 'unknown@example.com'}</div>
+        <div class="email-badge">${escapeHtml(email || 'unknown@example.com')}</div>
         <div class="scopes">
           <div class="scopes-title">Requested Permissions</div>
           <div class="scope-item">View your email messages (gmail.readonly)</div>
@@ -438,6 +440,22 @@ app.post('/api/reset', (_req, res) => {
 // We match the sender's phone to an existing lead and record the reply.
 app.post('/api/sms/inbound', express.urlencoded({ extended: false }), async (req, res) => {
   try {
+    const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN?.trim();
+    if (twilioAuthToken) {
+      const signature = req.header('X-Twilio-Signature') || '';
+      const publicUrl = process.env.TWILIO_WEBHOOK_URL
+        || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.get('host')}${req.originalUrl}`;
+      if (!validateTwilioSignature({ signature, url: publicUrl, params: req.body, authToken: twilioAuthToken })) {
+        console.warn('[TWILIO INBOUND] Rejected request with an invalid signature.');
+        res.status(403).type('text/xml').send('<Response></Response>');
+        return;
+      }
+    } else if (isCloudEnvironment()) {
+      console.warn('[TWILIO INBOUND] TWILIO_AUTH_TOKEN is unset; inbound SMS cannot be verified.');
+      res.status(503).type('text/xml').send('<Response></Response>');
+      return;
+    }
+
     const from = (req.body.From as string) || '';
     const body = (req.body.Body as string) || '';
 
@@ -446,7 +464,7 @@ app.post('/api/sms/inbound', express.urlencoded({ extended: false }), async (req
       return;
     }
 
-    console.log(`[TWILIO INBOUND] SMS from ${from}: ${body}`);
+    console.log('[TWILIO INBOUND] Received an SMS webhook.');
 
     // Find the most recent lead with this phone number as contact
     const state = getEngine().getState();
@@ -467,8 +485,10 @@ app.post('/api/sms/inbound', express.urlencoded({ extended: false }), async (req
     // Respond with empty TwiML so Twilio doesn't retry
     res.type('text/xml').send('<Response></Response>');
   } catch (error) {
-    console.error('[TWILIO INBOUND] Error processing inbound SMS:', error);
-    res.type('text/xml').send('<Response></Response>');
+    console.error('[TWILIO INBOUND] Error processing inbound SMS:', error instanceof Error ? error.message : 'Unknown error');
+    // Return a retryable failure. A 200 here would tell Twilio the message was
+    // accepted even when the reply or opt-out was never persisted.
+    res.status(500).type('text/xml').send('<Response></Response>');
   }
 });
 

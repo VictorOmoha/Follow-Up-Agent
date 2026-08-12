@@ -11,9 +11,20 @@ if (hasTwilioConfig) {
   client = twilio(accountSid, authToken);
 }
 
+export function validateTwilioSignature(options: {
+  signature: string;
+  url: string;
+  params: Record<string, unknown>;
+  authToken?: string;
+}): boolean {
+  const token = options.authToken ?? process.env.TWILIO_AUTH_TOKEN;
+  if (!token || !options.signature) return false;
+  return twilio.validateRequest(token, options.signature, options.url, options.params as Record<string, string>);
+}
+
 export async function sendSms(to: string, body: string): Promise<{ success: boolean; sid?: string; error?: string }> {
   if (!hasTwilioConfig || !client) {
-    console.log(`[TWILIO DRY RUN] Sending SMS to ${to}: ${body}`);
+    console.log('[TWILIO DRY RUN] Simulated outbound SMS; recipient and content omitted.');
     return { success: true, sid: 'mock_sid_dry_run' };
   }
 
@@ -23,11 +34,11 @@ export async function sendSms(to: string, body: string): Promise<{ success: bool
       from: twilioNumber,
       to,
     });
-    console.log(`[TWILIO SUCCESS] SMS sent to ${to}, SID: ${message.sid}`);
+    console.log(`[TWILIO SUCCESS] SMS sent, SID: ${message.sid}`);
     return { success: true, sid: message.sid };
   } catch (error) {
     const err = error as Error;
-    console.error(`[TWILIO ERROR] Failed to send SMS to ${to}:`, error);
+    console.error('[TWILIO ERROR] Failed to send SMS:', err.message);
     return { success: false, error: err.message || String(error) };
   }
 }

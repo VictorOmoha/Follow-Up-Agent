@@ -2,12 +2,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createAgentEngine, phoneDigitsMatch, type AgentState } from './agent-engine';
-import { buildGmailOAuthStartFromEnv } from './gmail-oauth';
+import { buildGmailOAuthStartFromEnv, escapeHtml } from './gmail-oauth';
 import { loadStateFromFirestore, saveStateToFirestore } from './db';
 import { toPublicAgentState, toPublicInbox } from './public-state';
 import { extractLeadFromText } from './gemini';
-import { checkAuth, checkWebhookAuth } from './auth';
+import { checkAuth, checkWebhookAuth, isCloudEnvironment, warnIfInsecureAuthPosture } from './auth';
 import { createRateLimiter } from './rate-limiter';
+import { validateTwilioSignature } from './twilio';
 
 // Load .env file programmatically (built-in Node 20.12+)
 if (typeof process.loadEnvFile === 'function') {
@@ -50,13 +51,26 @@ function sendJson(response: ServerResponse, status: number, body: unknown) {
   response.end(JSON.stringify(body));
 }
 
+const MAX_REQUEST_BODY_BYTES = 1_048_576;
+
 function readRawBody(request: IncomingMessage): Promise<string> {
   return new Promise((resolveBody, reject) => {
     let raw = '';
+    let size = 0;
+    let tooLarge = false;
     request.on('data', (chunk) => {
+      if (tooLarge) return;
+      size += Buffer.byteLength(chunk);
+      if (size > MAX_REQUEST_BODY_BYTES) {
+        tooLarge = true;
+        reject(Object.assign(new Error('Request body exceeds 1 MB limit'), { statusCode: 413 }));
+        return;
+      }
       raw += chunk;
     });
-    request.on('end', () => resolveBody(raw));
+    request.on('end', () => {
+      if (!tooLarge) resolveBody(raw);
+    });
     request.on('error', reject);
   });
 }
@@ -83,6 +97,7 @@ function match(pathname: string, pattern: RegExp) {
 }
 
 async function start() {
+  warnIfInsecureAuthPosture();
   console.log('Loading state from Firestore...');
   const firestoreState = await loadStateFromFirestore();
   if (firestoreState) {
@@ -300,7 +315,7 @@ async function start() {
             <div class="card">
               <h1>Mock Google Sign-In</h1>
               <p>Omoha Follow-Up Agent is requesting permission to access your Google Account:</p>
-              <div class="email-badge">${email || 'unknown@example.com'}</div>
+              <div class="email-badge">${escapeHtml(email || 'unknown@example.com')}</div>
               
               <div class="scopes">
                 <div class="scopes-title">Requested Permissions</div>
@@ -601,6 +616,23 @@ async function start() {
       // Mirrors the Cloud Functions endpoint in functions/src/index.ts.
       if (request.method === 'POST' && url.pathname === '/api/sms/inbound') {
         const form = await readFormOrJson(request);
+        const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN?.trim();
+        if (twilioAuthToken) {
+          const signatureHeader = request.headers['x-twilio-signature'];
+          const signature = typeof signatureHeader === 'string' ? signatureHeader : '';
+          const publicUrl = process.env.TWILIO_WEBHOOK_URL
+            || `${request.headers['x-forwarded-proto'] || 'http'}://${request.headers['x-forwarded-host'] || request.headers.host || `127.0.0.1:${PORT}`}${request.url || '/api/sms/inbound'}`;
+          if (!validateTwilioSignature({ signature, url: publicUrl, params: form, authToken: twilioAuthToken })) {
+            response.writeHead(403, { 'Content-Type': 'text/xml' });
+            response.end('<Response></Response>');
+            return;
+          }
+        } else if (isCloudEnvironment()) {
+          console.warn('[TWILIO INBOUND] TWILIO_AUTH_TOKEN is unset; inbound SMS cannot be verified.');
+          response.writeHead(503, { 'Content-Type': 'text/xml' });
+          response.end('<Response></Response>');
+          return;
+        }
         const from = form.From || '';
         const smsBody = form.Body || '';
 
@@ -610,7 +642,7 @@ async function start() {
           return;
         }
 
-        console.log(`[TWILIO INBOUND] SMS from ${from}: ${smsBody}`);
+        console.log('[TWILIO INBOUND] Received an SMS webhook.');
 
         const currentState = engine.getState();
         const matchedLead = currentState.leads.find((l) => phoneDigitsMatch(l.contact || '', from));

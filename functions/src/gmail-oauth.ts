@@ -24,6 +24,16 @@ function makeState() {
   return `gmail_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+export function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character] || character);
+}
+
 export function buildGmailOAuthStart(config: GmailOAuthConfig) {
   const state = config.state || makeState();
   const redirectUri = config.redirectUri || defaultRedirectUri;

@@ -12,6 +12,7 @@ defineString('GEMINI_API_KEY', { default: '' });
 defineString('TWILIO_ACCOUNT_SID', { default: '' });
 defineString('TWILIO_AUTH_TOKEN', { default: '' });
 defineString('TWILIO_PHONE_NUMBER', { default: '' });
+defineString('TWILIO_WEBHOOK_URL', { default: '' });
 defineString('GMAIL_CLIENT_ID', { default: '' });
 defineString('GMAIL_CLIENT_SECRET', { default: '' });
 defineString('GMAIL_REDIRECT_URI', { default: '' });
@@ -33,7 +34,12 @@ export const api = onRequest(
   },
   async (req, res) => {
     await enginePromise;
-    return app(req, res);
+    await new Promise<void>((resolve, reject) => {
+      res.once('finish', resolve);
+      res.once('error', reject);
+      app(req, res);
+    });
+    await getEngineForScheduler()?.flushPersistence();
   }
 );
 
@@ -56,6 +62,7 @@ export const runDueTasks = onSchedule(
     }
     console.log('[SCHEDULED] Running due tasks...');
     const result = await engine.runDueTasks({ force: false });
+    await engine.flushPersistence();
     console.log('[SCHEDULED] Due tasks result:', result);
   }
 );
@@ -78,6 +85,7 @@ export const syncInboxes = onSchedule(
     }
     console.log('[SCHEDULED] Syncing inboxes...');
     const result = await engine.runAutonomousCycle();
+    await engine.flushPersistence();
     console.log('[SCHEDULED] Inbox sync result:', result);
   }
 );

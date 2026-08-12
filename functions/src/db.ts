@@ -80,5 +80,6 @@ export async function saveStateToFirestore(state: AgentState): Promise<void> {
     await stateDoc.set(state);
   } catch (error) {
     console.error('Failed to save state to Firestore:', error);
+    throw error;
   }
 }
