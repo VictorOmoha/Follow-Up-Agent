@@ -6,7 +6,10 @@ import { buildGmailOAuthStartFromEnv, escapeHtml } from './gmail-oauth';
 import { loadStateFromFirestore, saveStateToFirestore } from './db';
 import { toPublicAgentState, toPublicInbox } from './public-state';
 import { extractLeadFromText } from './gemini';
-import { checkAuth, checkWebhookAuth, isCloudEnvironment, warnIfInsecureAuthPosture } from './auth';
+import {
+  checkAuth, checkDashboardCredential, checkWebhookAuth, clearDashboardSessionCookie,
+  createDashboardSession, dashboardSessionCookie, isCloudEnvironment, warnIfInsecureAuthPosture,
+} from './auth';
 import { createRateLimiter } from './rate-limiter';
 import { validateTwilioSignature } from './twilio';
 
@@ -42,13 +45,21 @@ function writeState(state: AgentState) {
 }
 
 function sendJson(response: ServerResponse, status: number, body: unknown) {
-  response.writeHead(status, {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  });
+  response.writeHead(status, { 'Content-Type': 'application/json' });
   response.end(JSON.stringify(body));
+}
+
+function allowedOrigin(origin: string | undefined): string | undefined {
+  if (!origin) return undefined;
+  const configured = (process.env.DASHBOARD_ALLOWED_ORIGINS || '').split(',').map((value) => value.trim()).filter(Boolean);
+  if (configured.includes(origin)) return origin;
+  try {
+    const parsed = new URL(origin);
+    if (!isCloudEnvironment() && ['localhost', '127.0.0.1'].includes(parsed.hostname)) return origin;
+  } catch {
+    return undefined;
+  }
+  return undefined;
 }
 
 const MAX_REQUEST_BODY_BYTES = 1_048_576;
@@ -122,23 +133,26 @@ async function start() {
   }
 
   const server = createServer(async (request, response) => {
-    response.setHeader('Access-Control-Allow-Origin', '*');
+    const origin = allowedOrigin(typeof request.headers.origin === 'string' ? request.headers.origin : undefined);
+    if (origin) {
+      response.setHeader('Access-Control-Allow-Origin', origin);
+      response.setHeader('Vary', 'Origin');
+      response.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
     response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-    response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    response.setHeader('Access-Control-Allow-Headers', 'Content-Type,AGENT_API_KEY,WEBHOOK_API_KEY');
 
     if (request.method === 'OPTIONS') {
-      response.writeHead(204);
+      response.writeHead(origin || !request.headers.origin ? 204 : 403);
       response.end();
       return;
     }
 
     const url = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`);
-
-    // Auth check (skip for webhook endpoints — lead webhook has its own auth,
-    // Twilio inbound SMS is signed by Twilio and must stay reachable)
     const isWebhook = url.pathname === '/api/webhooks/lead' || url.pathname === '/api/webhooks/email';
     const isSmsInbound = url.pathname === '/api/sms/inbound';
-    if (!isWebhook && !isSmsInbound) {
+    const isPublicAuthPath = url.pathname === '/api/session' || url.pathname === '/api/inboxes/gmail/callback' || url.pathname === '/api/inboxes/gmail/mock-auth';
+    if (!isWebhook && !isSmsInbound && !isPublicAuthPath) {
       const authResult = checkAuth({ headers: request.headers as Record<string, string | string[] | undefined>, url: request.url || '' });
       if (!authResult.ok) {
         sendJson(response, authResult.status || 401, { error: authResult.error });
@@ -181,6 +195,27 @@ async function start() {
     }
 
     try {
+      if (request.method === 'POST' && url.pathname === '/api/session') {
+        const body = await readJson(request) as { apiKey?: string };
+        if (!checkDashboardCredential(body.apiKey)) {
+          sendJson(response, 401, { error: 'Invalid dashboard access key' });
+          return;
+        }
+        const secure = isCloudEnvironment() || request.headers['x-forwarded-proto'] === 'https';
+        response.setHeader('Set-Cookie', dashboardSessionCookie(createDashboardSession(process.env.AGENT_API_KEY!.trim()), secure));
+        response.writeHead(204);
+        response.end();
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/session/logout') {
+        const secure = isCloudEnvironment() || request.headers['x-forwarded-proto'] === 'https';
+        response.setHeader('Set-Cookie', clearDashboardSessionCookie(secure));
+        response.writeHead(204);
+        response.end();
+        return;
+      }
+
       if (request.method === 'GET' && url.pathname === '/api/state') {
         sendJson(response, 200, toPublicAgentState(engine.getState()));
         return;
@@ -592,7 +627,11 @@ async function start() {
       }
 
       if (request.method === 'POST' && url.pathname === '/api/config') {
-        const body = await readJson(request) as { bookingLink?: string; autopilotEnabled?: boolean; geminiApiKey?: string; gmailSyncQuery?: string };
+        const body = await readJson(request) as { bookingLink?: string; autopilotEnabled?: boolean; geminiApiKey?: string; gmailSyncQuery?: string; confirmAutopilot?: boolean };
+        if (body.autopilotEnabled === true && body.confirmAutopilot !== true) {
+          sendJson(response, 400, { error: 'Enabling autopilot requires explicit confirmation' });
+          return;
+        }
         const state = engine.getState();
         if (state.config) {
           if (body.bookingLink !== undefined) state.config.bookingLink = body.bookingLink;
@@ -664,6 +703,11 @@ async function start() {
       }
 
       if (request.method === 'POST' && url.pathname === '/api/reset') {
+        const body = await readJson(request) as { confirmation?: string };
+        if (body.confirmation !== 'CLEAR ALL DATA') {
+          sendJson(response, 400, { error: 'Reset requires the confirmation phrase CLEAR ALL DATA' });
+          return;
+        }
         engine.reset();
         sendJson(response, 200, toPublicAgentState(engine.getState()));
         return;

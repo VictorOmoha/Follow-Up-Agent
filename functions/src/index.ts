@@ -4,7 +4,10 @@ import { buildGmailOAuthStartFromEnv, escapeHtml } from './gmail-oauth.js';
 import { loadStateFromFirestore, saveStateToFirestore } from './db.js';
 import { toPublicAgentState, toPublicInbox } from './public-state.js';
 import { extractLeadFromText } from './gemini.js';
-import { checkAuth, checkWebhookAuth, isCloudEnvironment, warnIfInsecureAuthPosture } from './auth.js';
+import {
+  checkAuth, checkDashboardCredential, checkWebhookAuth, clearDashboardSessionCookie,
+  createDashboardSession, dashboardSessionCookie, isCloudEnvironment, warnIfInsecureAuthPosture,
+} from './auth.js';
 import { createRateLimiter } from './rate-limiter.js';
 import { validateTwilioSignature } from './twilio.js';
 
@@ -79,21 +82,39 @@ export const app = express();
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true })); // For Twilio webhook form posts
 
-// CORS
-app.use((_req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+function allowedOrigin(origin: string | undefined): string | undefined {
+  if (!origin) return undefined;
+  const configured = (process.env.DASHBOARD_ALLOWED_ORIGINS || '').split(',').map((value) => value.trim()).filter(Boolean);
+  if (configured.includes(origin)) return origin;
+  try {
+    const parsed = new URL(origin);
+    if (!isCloudEnvironment() && ['localhost', '127.0.0.1'].includes(parsed.hostname)) return origin;
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+app.use((req, res, next) => {
+  const origin = allowedOrigin(req.header('Origin'));
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,AGENT_API_KEY,WEBHOOK_API_KEY');
-  if (_req.method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(origin || !req.header('Origin') ? 204 : 403);
     return;
   }
   next();
 });
 
-// Auth middleware (skip for webhook endpoints and Twilio inbound)
-const publicPaths = new Set(['/api/webhooks/lead', '/api/webhooks/email', '/api/sms/inbound']);
+const publicPaths = new Set([
+  '/api/session', '/api/webhooks/lead', '/api/webhooks/email', '/api/sms/inbound',
+  '/api/inboxes/gmail/callback', '/api/inboxes/gmail/mock-auth',
+]);
 app.use((req, res, next) => {
   if (publicPaths.has(req.path)) return next();
 
@@ -110,6 +131,23 @@ app.use((req, res, next) => {
     return;
   }
   next();
+});
+
+// ─── Dashboard session ───────────────────────────────────────
+app.post('/api/session', (req, res) => {
+  if (!checkDashboardCredential(req.body?.apiKey)) {
+    res.status(401).json({ error: 'Invalid dashboard access key' });
+    return;
+  }
+  const secure = isCloudEnvironment() || req.secure || req.header('x-forwarded-proto') === 'https';
+  res.setHeader('Set-Cookie', dashboardSessionCookie(createDashboardSession(process.env.AGENT_API_KEY!.trim()), secure));
+  res.status(204).end();
+});
+
+app.post('/api/session/logout', (req, res) => {
+  const secure = isCloudEnvironment() || req.secure || req.header('x-forwarded-proto') === 'https';
+  res.setHeader('Set-Cookie', clearDashboardSessionCookie(secure));
+  res.status(204).end();
 });
 
 // ─── GET /api/state ──────────────────────────────────────────
@@ -404,7 +442,11 @@ app.post('/api/agent/cycle', async (req, res) => {
 // In production, geminiApiKey is read from env (Firebase Secrets) and
 // cannot be set via the API. In dev mode, it can be set via the UI.
 app.post('/api/config', (req, res) => {
-  const body = req.body as { bookingLink?: string; autopilotEnabled?: boolean; geminiApiKey?: string; gmailSyncQuery?: string };
+  const body = req.body as { bookingLink?: string; autopilotEnabled?: boolean; geminiApiKey?: string; gmailSyncQuery?: string; confirmAutopilot?: boolean };
+  if (body.autopilotEnabled === true && body.confirmAutopilot !== true) {
+    res.status(400).json({ error: 'Enabling autopilot requires explicit confirmation' });
+    return;
+  }
   const isProduction = !!(process.env.FUNCTION_TARGET || process.env.FIREBASE_CONFIG);
 
   if (isProduction && body.geminiApiKey !== undefined) {
@@ -430,7 +472,11 @@ app.post('/api/config', (req, res) => {
 });
 
 // ─── POST /api/reset ─────────────────────────────────────────
-app.post('/api/reset', (_req, res) => {
+app.post('/api/reset', (req, res) => {
+  if (req.body?.confirmation !== 'CLEAR ALL DATA') {
+    res.status(400).json({ error: 'Reset requires the confirmation phrase CLEAR ALL DATA' });
+    return;
+  }
   getEngine().reset();
   res.json(toPublicAgentState(getEngine().getState()));
 });

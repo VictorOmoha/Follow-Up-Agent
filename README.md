@@ -105,6 +105,13 @@ https://YOUR_DEPLOYED_DOMAIN/demo-guide.html
 
 The main app also links to it from the header as "Open demo guide".
 
+## Production safety
+
+- Set `AGENT_API_KEY` in cloud. The dashboard exchanges it once for a 12-hour, HttpOnly, SameSite session cookie; it is not stored in browser state.
+- Set `WEBHOOK_API_KEY` in cloud and send it only through the `WEBHOOK_API_KEY` request header. Query-string credentials are rejected.
+- Firebase Hosting should use same-origin `/api` rewrites. Only set `DASHBOARD_ALLOWED_ORIGINS` for an intentional cross-origin dashboard.
+- Enabling Autopilot and clearing all data require explicit confirmation in both the UI and API.
+
 ## Optional environment variables
 
 ```bash
