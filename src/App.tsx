@@ -5,17 +5,9 @@ import {
   Settings, Sun, X, Plus, Inbox, Zap,
 } from 'lucide-react';
 import { type LeadInput, scoreLead } from './lib/agent';
+import { api, ApiError, webhookEndpoint } from './lib/api';
+import { SignInScreen } from './components/SignInScreen';
 import './styles.css';
-
-const defaultApiBase = (() => {
-  const { protocol, hostname } = window.location;
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return `${protocol}//127.0.0.1:8787/api`;
-  }
-  return '/api';
-})();
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || defaultApiBase;
 
 type LeadRecord = LeadInput & {
   id: string;
@@ -146,15 +138,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-async function api<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-  if (!response.ok) throw new Error(await response.text());
-  return response.json() as Promise<T>;
-}
-
 function tempBadgeClass(temp: 'Hot' | 'Warm' | 'Nurture') {
   return temp === 'Hot' ? 'hot' : temp === 'Warm' ? 'warm' : 'nurture';
 }
@@ -184,6 +167,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showNewLeadForm, setShowNewLeadForm] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [needsSignIn, setNeedsSignIn] = useState(false);
 
   useEffect(() => {
     if (theme === 'light') {
@@ -210,19 +194,30 @@ export default function App() {
       } else {
         setSelectedLeadId(null);
       }
-    } catch {
-      setError('API offline. Start it with npm run dev.');
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        setNeedsSignIn(true);
+        setError('');
+      } else {
+        setError('API offline or unavailable.');
+      }
     } finally {
       setLoading(false);
     }
   }, [selectedLeadId]);
 
   useEffect(() => {
-    const initial = window.setTimeout(() => void refresh(), 0);
-    const timer = window.setInterval(() => void refresh(), 3000);
+    void refresh();
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void refresh();
+    };
+    const timer = window.setInterval(refreshWhenVisible, 30_000);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    window.addEventListener('focus', refreshWhenVisible);
     return () => {
-      window.clearTimeout(initial);
       window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+      window.removeEventListener('focus', refreshWhenVisible);
     };
   }, [refresh]);
 
@@ -366,9 +361,10 @@ export default function App() {
   async function toggleAutopilot() {
     try {
       const current = !!state.config?.autopilotEnabled;
+      if (!current && !window.confirm('Enable Autopilot? The agent may send follow-ups without per-message approval.')) return;
       const nextState = await api<AgentState>('/config', {
         method: 'POST',
-        body: JSON.stringify({ autopilotEnabled: !current }),
+        body: JSON.stringify({ autopilotEnabled: !current, confirmAutopilot: !current }),
       });
       setState({ ...emptyState, ...nextState, decisions: nextState.decisions ?? [] });
     } catch (err) {
@@ -418,10 +414,17 @@ export default function App() {
   }
 
   async function reset() {
-    await api('/reset', { method: 'POST' });
+    if (!window.confirm('Clear every lead, message, task, and timeline entry? This cannot be undone.')) return;
+    await api('/reset', { method: 'POST', body: JSON.stringify({ confirmation: 'CLEAR ALL DATA' }) });
     setSelectedLeadId(null);
     await refresh();
   }
+
+  if (needsSignIn) {
+    return <SignInScreen onSignedIn={async () => { setNeedsSignIn(false); await refresh(); }} />;
+  }
+
+  const webhookUrl = webhookEndpoint();
 
   return (
     <div className="app-container">
@@ -959,13 +962,13 @@ export default function App() {
                 </div>
                 <p className="drawer-desc">Push inbound leads automatically from external CRMs or form webhooks to this endpoint.</p>
                 <div className="webhook-url-box">
-                  <code>{window.location.protocol}//{window.location.hostname}:8787/api/webhooks/lead</code>
+                  <code>{webhookUrl}</code>
                   <button
                     className="button secondary sm"
                     type="button"
                     style={{ padding: '4px 8px', fontSize: '0.65rem', flexShrink: 0 }}
                     onClick={() => {
-                      navigator.clipboard.writeText(`${window.location.protocol}//${window.location.hostname}:8787/api/webhooks/lead`);
+                      navigator.clipboard.writeText(webhookUrl);
                       alert('Webhook URL copied.');
                     }}
                   >

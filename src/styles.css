@@ -1248,6 +1248,28 @@ code {
 /* ============================================================
    Modal: New Lead Form
    ============================================================ */
+.auth-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg-darkest);
+}
+
+.auth-card {
+  width: min(440px, 100%);
+  display: grid;
+  gap: 18px;
+  padding: 32px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-panel);
+}
+
+.auth-card h1,
+.auth-card p { margin: 0; }
+.auth-card p { color: var(--text-muted); line-height: 1.6; }
+
 .modal-overlay {
   position: fixed;
   top: 0;

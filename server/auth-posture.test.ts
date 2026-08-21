@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { checkAuth, warnIfInsecureAuthPosture } from '../functions/src/auth';
+import { checkAuth, createDashboardSession, verifyDashboardSession, warnIfInsecureAuthPosture } from '../functions/src/auth';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -19,6 +19,18 @@ describe('production authentication posture', () => {
       status: 503,
       error: 'API authentication is not configured',
     });
+    vi.unstubAllEnvs();
+  });
+
+  it('accepts a signed dashboard cookie and rejects expired or query-string keys', () => {
+    vi.stubEnv('FUNCTION_TARGET', 'api');
+    vi.stubEnv('AGENT_API_KEY', 'operator-secret');
+    const issuedAt = Date.now();
+    const token = createDashboardSession('operator-secret', issuedAt);
+    expect(verifyDashboardSession(token, 'operator-secret', issuedAt + 1_000)).toBe(true);
+    expect(checkAuth({ headers: { cookie: `follow_up_session=${token}` }, url: '/api/state' })).toEqual({ ok: true });
+    expect(checkAuth({ headers: {}, url: '/api/state?key=operator-secret' })).toMatchObject({ ok: false, status: 401 });
+    expect(verifyDashboardSession(token, 'operator-secret', issuedAt + 13 * 60 * 60 * 1000)).toBe(false);
     vi.unstubAllEnvs();
   });
 });

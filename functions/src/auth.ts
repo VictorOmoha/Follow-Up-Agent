@@ -1,15 +1,50 @@
-/**
- * API key authentication middleware.
- *
- * If AGENT_API_KEY env var is set, all incoming requests must include
- * either an `AGENT_API_KEY` header or `?key=` query param matching it.
- *
- * The webhook endpoint (/api/webhooks/lead) is exempt so external CRMs
- * can still push leads. If you want webhook auth too, set WEBHOOK_API_KEY
- * separately and it will be required on the webhook endpoint.
- *
- * If AGENT_API_KEY is not set, auth is disabled (dev mode).
- */
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+const DASHBOARD_COOKIE = 'follow_up_session';
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+
+type AuthRequest = {
+  headers: Record<string, string | string[] | undefined>;
+  url: string;
+};
+
+function constantTimeEqual(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function signSession(timestamp: string, apiKey: string): string {
+  return createHmac('sha256', apiKey).update(`follow-up-agent:${timestamp}`).digest('base64url');
+}
+
+function getCookie(headers: AuthRequest['headers'], name: string): string | undefined {
+  const raw = headers.cookie;
+  const cookie = Array.isArray(raw) ? raw.join(';') : raw;
+  return cookie?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.slice(name.length + 1);
+}
+
+export function createDashboardSession(apiKey: string, now = Date.now()): string {
+  const timestamp = String(now);
+  return `${timestamp}.${signSession(timestamp, apiKey)}`;
+}
+
+export function verifyDashboardSession(token: string | undefined, apiKey: string, now = Date.now()): boolean {
+  if (!token) return false;
+  const [timestamp, signature, extra] = token.split('.');
+  if (!timestamp || !signature || extra) return false;
+  const issuedAt = Number(timestamp);
+  if (!Number.isFinite(issuedAt) || issuedAt > now + 60_000 || now - issuedAt > SESSION_TTL_MS) return false;
+  return constantTimeEqual(signature, signSession(timestamp, apiKey));
+}
+
+export function dashboardSessionCookie(token: string, secure: boolean): string {
+  return `${DASHBOARD_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_TTL_MS / 1000}${secure ? '; Secure' : ''}`;
+}
+
+export function clearDashboardSessionCookie(secure: boolean): string {
+  return `${DASHBOARD_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure ? '; Secure' : ''}`;
+}
 
 export function isAuthEnabled(): boolean {
   return !!process.env.AGENT_API_KEY?.trim();
@@ -20,52 +55,39 @@ export function isCloudEnvironment(env: NodeJS.ProcessEnv = process.env): boolea
 }
 
 export function warnIfInsecureAuthPosture(env: NodeJS.ProcessEnv = process.env): boolean {
-  const isCloud = isCloudEnvironment(env);
-  if (isCloud && !env.AGENT_API_KEY?.trim()) {
-    console.warn(
-      '[AUTH] Production API is unauthenticated because AGENT_API_KEY is unset. ' +
-      'Protect the dashboard with user authentication before customer use.'
-    );
+  if (isCloudEnvironment(env) && !env.AGENT_API_KEY?.trim()) {
+    console.warn('[AUTH] Production dashboard is unavailable because AGENT_API_KEY is unset.');
     return true;
   }
   return false;
 }
 
-export function checkAuth(request: { headers: Record<string, string | string[] | undefined>; url: string }): { ok: boolean; status?: number; error?: string } {
+export function checkAuth(request: AuthRequest): { ok: boolean; status?: number; error?: string } {
   const apiKey = process.env.AGENT_API_KEY?.trim();
   if (!apiKey) {
-    if (isCloudEnvironment()) {
-      return { ok: false, status: 503, error: 'API authentication is not configured' };
-    }
-    return { ok: true }; // Auth disabled for local development only
+    if (isCloudEnvironment()) return { ok: false, status: 503, error: 'API authentication is not configured' };
+    return { ok: true };
   }
 
-  // Check header
-  const headerKey = request.headers['agent-api-key'] as string | undefined;
-  if (headerKey === apiKey) return { ok: true };
-
-  // Check query param
-  const url = new URL(request.url, 'http://localhost');
-  const queryKey = url.searchParams.get('key');
-  if (queryKey === apiKey) return { ok: true };
-
-  return { ok: false, status: 401, error: 'Unauthorized: valid AGENT_API_KEY required' };
+  const headerKey = request.headers['agent-api-key'];
+  if (typeof headerKey === 'string' && constantTimeEqual(headerKey, apiKey)) return { ok: true };
+  if (verifyDashboardSession(getCookie(request.headers, DASHBOARD_COOKIE), apiKey)) return { ok: true };
+  return { ok: false, status: 401, error: 'Dashboard sign-in required' };
 }
 
-/**
- * Webhook-specific auth. If WEBHOOK_API_KEY is set, webhook requests
- * must include it in header or query. If not set, webhooks are open.
- */
-export function checkWebhookAuth(request: { headers: Record<string, string | string[] | undefined>; url: string }): { ok: boolean; status?: number; error?: string } {
+export function checkDashboardCredential(candidate: unknown): boolean {
+  const apiKey = process.env.AGENT_API_KEY?.trim();
+  return !!apiKey && typeof candidate === 'string' && constantTimeEqual(candidate, apiKey);
+}
+
+export function checkWebhookAuth(request: AuthRequest): { ok: boolean; status?: number; error?: string } {
   const webhookKey = process.env.WEBHOOK_API_KEY?.trim();
-  if (!webhookKey) return { ok: true }; // Webhook auth disabled
+  if (!webhookKey) {
+    if (isCloudEnvironment()) return { ok: false, status: 503, error: 'Webhook authentication is not configured' };
+    return { ok: true };
+  }
 
-  const headerKey = request.headers['webhook-api-key'] as string | undefined;
-  if (headerKey === webhookKey) return { ok: true };
-
-  const url = new URL(request.url, 'http://localhost');
-  const queryKey = url.searchParams.get('webhook_key');
-  if (queryKey === webhookKey) return { ok: true };
-
-  return { ok: false, status: 401, error: 'Unauthorized: valid WEBHOOK_API_KEY required' };
+  const headerKey = request.headers['webhook-api-key'];
+  if (typeof headerKey === 'string' && constantTimeEqual(headerKey, webhookKey)) return { ok: true };
+  return { ok: false, status: 401, error: 'Unauthorized: valid WEBHOOK_API_KEY header required' };
 }

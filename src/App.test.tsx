@@ -45,6 +45,7 @@ function installApiMock() {
     const path = url.replace(/^https?:\/\/[^/]+\/api/, '').replace(/^\/api/, '');
     const body = init?.body ? JSON.parse(String(init.body)) : {};
 
+    if (path === '/session') return new Response(null, { status: 204 });
     if (path === '/state') return Response.json(state);
     if (path.startsWith('/inboxes/gmail/start')) {
       return Response.json({
@@ -119,7 +120,11 @@ function installApiMock() {
       };
       return Response.json(state);
     }
-    if (path === '/reset') { state = makeState(); return Response.json(state); }
+    if (path === '/reset') {
+      if (body.confirmation !== 'CLEAR ALL DATA') return Response.json({ error: 'confirmation required' }, { status: 400 });
+      state = makeState();
+      return Response.json(state);
+    }
     if (path === '/leads/lead_1/replies') {
       state.leads[0].status = 'needs_human';
       state.messages.unshift({ id: 'msg_2', leadId: 'lead_1', direction: 'inbound', status: 'received', body: body.body, createdAt: '2026-05-17T20:01:00Z' });
