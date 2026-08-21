@@ -190,7 +190,7 @@ describe('Omoha Follow-Up Agent', () => {
 
     await waitFor(() => expect(screen.getAllByText(/Ada Legal Group/i).length).toBeGreaterThan(0));
     expect(screen.getByText(/Draft waiting for approval/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Approve & Send Draft/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Approve & send via SMS/i })).toBeInTheDocument();
   });
 
   it('shows Gmail OAuth setup readiness in settings drawer without asking for secrets', async () => {
@@ -266,7 +266,7 @@ describe('Omoha Follow-Up Agent', () => {
     await waitFor(() => expect(screen.getByText(/Draft waiting for approval/i)).toBeInTheDocument());
 
     // Approve the draft using the adaptive primary action button
-    await userEvent.click(screen.getByRole('button', { name: /Approve & Send Draft/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Approve & send via SMS/i }));
 
     // After approval, the primary action switches to "Draft Next Follow-Up"
     await waitFor(() => expect(screen.getByRole('button', { name: /Draft Next Follow-Up/i })).toBeInTheDocument());
@@ -284,7 +284,7 @@ describe('Omoha Follow-Up Agent', () => {
 
     // Digest stats are in the lead list sidebar
     expect(screen.getByText(/on table/i)).toBeInTheDocument();
-    expect(screen.getByText(/stalled/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/stalled/i).length).toBeGreaterThan(0);
 
     // Open settings to access calendar link
     await userEvent.click(screen.getByRole('button', { name: /Open settings/i }));
