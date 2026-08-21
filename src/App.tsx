@@ -453,6 +453,23 @@ export default function App() {
     }
   }
 
+  function changeLeadFilter(nextFilter: 'all' | 'action' | 'stalled') {
+    setLeadFilter(nextFilter);
+    const matches = state.leads.filter((leadRecord) => nextFilter === 'all'
+      || (nextFilter === 'action' ? actionableLeadIds.has(leadRecord.id) : stalledLeadIds.has(leadRecord.id)));
+    if (!selectedLeadId || !matches.some((leadRecord) => leadRecord.id === selectedLeadId)) {
+      setSelectedLeadId(matches[0]?.id ?? null);
+      if (matches.length === 0) setMobileView('leads');
+    }
+  }
+
+  async function logout() {
+    await api<void>('/session/logout', { method: 'POST' });
+    setState(emptyState);
+    setSelectedLeadId(null);
+    setNeedsSignIn(true);
+  }
+
   async function reset() {
     if (!window.confirm('Clear every lead, message, task, and timeline entry? This cannot be undone.')) return;
     await api('/reset', { method: 'POST', body: JSON.stringify({ confirmation: 'CLEAR ALL DATA' }) });
@@ -496,6 +513,7 @@ export default function App() {
           >
             <Settings size={14} />
           </button>
+          <button onClick={() => void logout()} className="button secondary sm" type="button">Sign out</button>
           <span className="status-dot-wrapper">
             <span className={`status-dot ${loading ? 'connecting' : 'online'}`} />
             <span className="api-status">{loading ? 'Connecting' : 'Online'}</span>
@@ -567,9 +585,9 @@ export default function App() {
           </div>
 
           <div className="lead-filters" role="group" aria-label="Filter leads">
-            <button className={leadFilter === 'all' ? 'active' : ''} type="button" onClick={() => setLeadFilter('all')}>All <span>{state.leads.length}</span></button>
-            <button className={leadFilter === 'action' ? 'active' : ''} type="button" onClick={() => setLeadFilter('action')}>Action <span>{actionableLeadIds.size}</span></button>
-            <button className={leadFilter === 'stalled' ? 'active' : ''} type="button" onClick={() => setLeadFilter('stalled')}>Stalled <span>{stalledLeadIds.size}</span></button>
+            <button className={leadFilter === 'all' ? 'active' : ''} type="button" onClick={() => changeLeadFilter('all')}>All <span>{state.leads.length}</span></button>
+            <button className={leadFilter === 'action' ? 'active' : ''} type="button" onClick={() => changeLeadFilter('action')}>Action <span>{actionableLeadIds.size}</span></button>
+            <button className={leadFilter === 'stalled' ? 'active' : ''} type="button" onClick={() => changeLeadFilter('stalled')}>Stalled <span>{stalledLeadIds.size}</span></button>
           </div>
           <div className="lead-list">
             {state.leads.length === 0 ? (
