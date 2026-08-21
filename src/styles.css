@@ -244,6 +244,21 @@ a:hover {
 /* ============================================================
    Workspace - 3 Column Layout
    ============================================================ */
+.autopilot-banner {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 18px;
+  color: #fef3c7;
+  background: #3b2605;
+  border-bottom: 1px solid rgba(var(--warning-rgb), .35);
+}
+.autopilot-banner > div { display: flex; align-items: center; gap: 8px; }
+.autopilot-banner span { color: #fcd34d; font-size: .75rem; }
+.mobile-workspace-nav { display: none; }
+
 .workspace {
   display: flex;
   flex: 1;
@@ -354,6 +369,25 @@ a:hover {
 .stat-card.stat-scheduled svg { color: var(--primary-color); }
 .stat-card.stat-scheduled strong { color: var(--primary-light); }
 
+.lead-filters {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 8px 10px 4px;
+}
+.lead-filters button {
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  padding: 6px;
+  font: 600 .64rem inherit;
+  cursor: pointer;
+}
+.lead-filters button span { margin-left: 3px; color: var(--text-faint); }
+.lead-filters button:hover { background: var(--bg-panel); color: var(--text-default); }
+.lead-filters button.active { background: var(--bg-panel-active); color: var(--text-strong); border-color: var(--border-color-light); }
+
 .lead-list {
   flex: 1;
   overflow-y: auto;
@@ -444,6 +478,17 @@ a:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.lead-action-label {
+  font-size: .62rem;
+  font-weight: 700;
+  color: var(--accent-color);
+  line-height: 1.25;
+}
+
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 3px solid rgba(var(--primary-rgb), .45);
+  outline-offset: 2px;
 }
 
 /* ============================================================
@@ -1387,23 +1432,37 @@ code {
    Responsive
    ============================================================ */
 @media (max-width: 1024px) {
-  .workspace {
-    flex-direction: column;
-    overflow-y: auto;
-    height: auto;
-  }
-  .workspace-column {
-    height: auto;
-    width: 100% !important;
-    border-right: none;
+  body { overflow: hidden; }
+  .mobile-workspace-nav {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    background: var(--bg-darkest);
     border-bottom: 1px solid var(--border-color);
   }
-  .lead-list {
-    max-height: 300px;
+  .mobile-workspace-nav button {
+    min-height: 44px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--text-muted);
+    font: 700 .7rem inherit;
+    text-transform: uppercase;
+    letter-spacing: .05em;
   }
-  .activity-column .activity-stream {
-    max-height: 400px;
+  .mobile-workspace-nav button.active { color: var(--text-strong); border-bottom-color: var(--primary-color); }
+  .workspace { display: block; height: calc(100vh - 105px); overflow: hidden; }
+  .autopilot-banner + .mobile-workspace-nav + .workspace { height: calc(100vh - 149px); }
+  .workspace-column {
+    display: none;
+    height: 100%;
+    width: 100% !important;
+    border-right: none;
   }
+  .mobile-view-leads .lead-list-column,
+  .mobile-view-conversation .workbench,
+  .mobile-view-activity .activity-column { display: flex; }
+  .lead-list, .activity-column .activity-stream { max-height: none; }
+  .workbench-actions { position: sticky; bottom: 0; z-index: 3; }
   .lead-header-bar {
     flex-direction: column;
     align-items: flex-start;
@@ -1424,6 +1483,11 @@ code {
   .header-status {
     min-width: auto;
   }
+  .header-status .button.secondary.sm:not(.icon-btn), .api-status { display: none; }
+  .icon-btn { min-width: 44px !important; min-height: 44px; }
+  .autopilot-banner { align-items: flex-start; flex-direction: column; padding: 8px 12px; gap: 6px; }
+  .autopilot-banner > div { align-items: flex-start; flex-wrap: wrap; }
+  .autopilot-banner span { width: 100%; padding-left: 24px; }
   .stat-card-row {
     grid-template-columns: 1fr;
   }
@@ -1476,4 +1540,8 @@ body.light-theme .chat-message.outbound.draft {
 .status-dot.connecting {
   background: var(--accent-color);
   animation: pulse 1.5s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }

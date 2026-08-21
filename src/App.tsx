@@ -168,6 +168,20 @@ export default function App() {
   const [showNewLeadForm, setShowNewLeadForm] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [needsSignIn, setNeedsSignIn] = useState(false);
+  const [leadFilter, setLeadFilter] = useState<'all' | 'action' | 'stalled'>('all');
+  const [mobileView, setMobileView] = useState<'leads' | 'conversation' | 'activity'>('leads');
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+
+  useEffect(() => {
+    function closeOverlay(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setShowSettings(false);
+        setShowNewLeadForm(false);
+      }
+    }
+    window.addEventListener('keydown', closeOverlay);
+    return () => window.removeEventListener('keydown', closeOverlay);
+  }, []);
 
   useEffect(() => {
     if (theme === 'light') {
@@ -222,6 +236,17 @@ export default function App() {
   }, [refresh]);
 
   const selectedLead = state.leads.find((l) => l.id === selectedLeadId) ?? null;
+  const actionableLeadIds = new Set(state.leads.filter((leadRecord) => {
+    const hasDraft = state.messages.some((message) => message.leadId === leadRecord.id && message.direction === 'outbound' && message.status === 'draft');
+    return hasDraft || leadRecord.status === 'waiting_approval' || leadRecord.status === 'needs_human';
+  }).map((leadRecord) => leadRecord.id));
+  const stalledLeadIds = new Set(state.leads.filter((leadRecord) => {
+    if (leadRecord.status === 'closed' || leadRecord.status === 'nurture') return false;
+    return Date.now() - new Date(leadRecord.updatedAt).getTime() > 24 * 60 * 60 * 1000;
+  }).map((leadRecord) => leadRecord.id));
+  const visibleLeads = state.leads
+    .filter((leadRecord) => leadFilter === 'all' || (leadFilter === 'action' ? actionableLeadIds.has(leadRecord.id) : stalledLeadIds.has(leadRecord.id)))
+    .sort((left, right) => Number(actionableLeadIds.has(right.id)) - Number(actionableLeadIds.has(left.id)) || new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
   const activeInbox = state.inboxes[0];
   const unsyncedEmailCount = activeInbox
     ? state.emailMessages.filter((e) => e.inboxId === activeInbox.id && !e.importedAt).length
@@ -312,18 +337,33 @@ export default function App() {
 
   async function approveDraft() {
     if (!draft) return;
-    await api(`/messages/${draft.id}/approve`, { method: 'POST' });
-    await refresh();
+    setPendingAction('approve');
+    try {
+      await api(`/messages/${draft.id}/approve`, { method: 'POST' });
+      await refresh();
+    } finally {
+      setPendingAction(null);
+    }
   }
 
   async function runWorker({ force = false }: { force?: boolean } = {}) {
-    await api('/worker/run', { method: 'POST', body: JSON.stringify({ force }) });
-    await refresh();
+    setPendingAction('worker');
+    try {
+      await api('/worker/run', { method: 'POST', body: JSON.stringify({ force }) });
+      await refresh();
+    } finally {
+      setPendingAction(null);
+    }
   }
 
   async function runAgentCycle() {
-    setCycleReport(await api<AgentCycleReport>('/agent/cycle', { method: 'POST' }));
-    await refresh();
+    setPendingAction('cycle');
+    try {
+      setCycleReport(await api<AgentCycleReport>('/agent/cycle', { method: 'POST' }));
+      await refresh();
+    } finally {
+      setPendingAction(null);
+    }
   }
 
   async function recordReply() {
@@ -463,8 +503,21 @@ export default function App() {
         </div>
       </header>
 
+      {state.config?.autopilotEnabled && (
+        <div className="autopilot-banner" role="status">
+          <div><Zap size={16} /><strong>Autopilot is on</strong><span>Messages may send without per-message approval.</span></div>
+          <button className="button secondary sm" type="button" onClick={toggleAutopilot}>Pause autopilot</button>
+        </div>
+      )}
+
+      <nav className="mobile-workspace-nav" aria-label="Workspace views">
+        <button className={mobileView === 'leads' ? 'active' : ''} onClick={() => setMobileView('leads')} type="button">Leads</button>
+        <button className={mobileView === 'conversation' ? 'active' : ''} onClick={() => setMobileView('conversation')} type="button">Conversation</button>
+        <button className={mobileView === 'activity' ? 'active' : ''} onClick={() => setMobileView('activity')} type="button">Activity</button>
+      </nav>
+
       {/* Main Workspace: 3 columns - Lead List | Workbench | Agent Activity */}
-      <div className="workspace">
+      <div className={`workspace mobile-view-${mobileView}`}>
         {/* Column 1: Lead List + Stats */}
         <aside className="workspace-column lead-list-column">
           <div className="lead-list-header">
@@ -513,6 +566,11 @@ export default function App() {
             </div>
           </div>
 
+          <div className="lead-filters" role="group" aria-label="Filter leads">
+            <button className={leadFilter === 'all' ? 'active' : ''} type="button" onClick={() => setLeadFilter('all')}>All <span>{state.leads.length}</span></button>
+            <button className={leadFilter === 'action' ? 'active' : ''} type="button" onClick={() => setLeadFilter('action')}>Action <span>{actionableLeadIds.size}</span></button>
+            <button className={leadFilter === 'stalled' ? 'active' : ''} type="button" onClick={() => setLeadFilter('stalled')}>Stalled <span>{stalledLeadIds.size}</span></button>
+          </div>
           <div className="lead-list">
             {state.leads.length === 0 ? (
               <div className="lead-list-empty">
@@ -520,8 +578,10 @@ export default function App() {
                 <p>No leads yet</p>
                 <small>Create a lead to see the agent in action</small>
               </div>
+            ) : visibleLeads.length === 0 ? (
+              <div className="lead-list-empty"><p>No leads match this filter.</p><small>Try another queue.</small></div>
             ) : (
-              state.leads.map((l) => {
+              visibleLeads.map((l) => {
                 const temp = scoreLead(l).temperature;
                 const hasDraft = state.messages.some((m) => m.leadId === l.id && m.direction === 'outbound' && m.status === 'draft');
                 const needsAction = l.status === 'waiting_approval' || l.status === 'needs_human' || hasDraft;
@@ -529,7 +589,7 @@ export default function App() {
                   <button
                     key={l.id}
                     className={`lead-list-item ${selectedLeadId === l.id ? 'selected' : ''}`}
-                    onClick={() => setSelectedLeadId(l.id)}
+                    onClick={() => { setSelectedLeadId(l.id); setMobileView('conversation'); }}
                     type="button"
                   >
                     <div className="lead-list-item-row">
@@ -541,6 +601,7 @@ export default function App() {
                       <span className={`badge ${l.status}`}>{l.status.replace('_', ' ')}</span>
                     </div>
                     <small>{l.service} - {l.company}</small>
+                    {needsAction && <span className="lead-action-label">{hasDraft ? 'Draft awaiting approval' : l.status === 'needs_human' ? 'Owner review needed' : 'Action required'}</span>}
                   </button>
                 );
               })
@@ -607,11 +668,11 @@ export default function App() {
                     <button
                       className={`button ${primaryAction.variant}`}
                       type="button"
-                      disabled={primaryAction.disabled}
+                      disabled={primaryAction.disabled || pendingAction !== null}
                       onClick={primaryAction.onClick}
                     >
                       {primaryAction.icon}
-                      {primaryAction.label}
+                      {pendingAction ? 'Working…' : draft ? `Approve & send via ${selectedLead.channel}` : primaryAction.label}
                     </button>
                   </div>
 
@@ -771,9 +832,9 @@ export default function App() {
       {/* New Lead Modal */}
       {showNewLeadForm && (
         <div className="modal-overlay" onClick={() => setShowNewLeadForm(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="new-lead-title" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Create a Lead</h2>
+              <h2 id="new-lead-title">Create a Lead</h2>
             </div>
             <form onSubmit={createLead}>
               <div className="scrollable-form-fields">
@@ -804,10 +865,10 @@ export default function App() {
       {/* Settings Drawer */}
       {showSettings && (
         <div className="drawer-overlay" onClick={() => setShowSettings(false)}>
-          <div className="drawer-content" onClick={(e) => e.stopPropagation()}>
+          <div className="drawer-content" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(e) => e.stopPropagation()}>
             <div className="drawer-header">
-              <h2>Settings</h2>
-              <button className="button secondary sm icon-btn" type="button" onClick={() => setShowSettings(false)}>
+              <h2 id="settings-title">Settings</h2>
+              <button className="button secondary sm icon-btn" aria-label="Close settings" type="button" onClick={() => setShowSettings(false)}>
                 <X size={16} />
               </button>
             </div>
