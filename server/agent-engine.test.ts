@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createAgentEngine, phoneDigitsMatch } from './agent-engine';
 
-const fixedNow = new Date('2026-08-06T17:00:00.000Z');
-
 const leadInput = {
   name: 'Ada Okafor',
   company: 'Ada Legal Group',
@@ -27,21 +25,6 @@ describe('phoneDigitsMatch', () => {
 });
 
 describe('real follow-up agent engine', () => {
-  it('defaults the Phase 1 retention feature flag off for fresh and legacy state', () => {
-    const fresh = createAgentEngine({ now: () => fixedNow });
-    expect(fresh.getState().config?.features?.retentionPhase1).toBe(false);
-
-    const legacy = createAgentEngine({
-      now: () => fixedNow,
-      initialState: {
-        leads: [], messages: [], tasks: [], timeline: [], decisions: [], inboxes: [], emailMessages: [],
-        config: { bookingLink: 'https://example.com', autopilotEnabled: true },
-      },
-    });
-    expect(legacy.getState().config?.features?.retentionPhase1).toBe(false);
-    expect(legacy.getState().config?.autopilotEnabled).toBe(true);
-  });
-
   it('creates a persisted agent run with a draft message waiting for approval', async () => {
     const engine = createAgentEngine({ now: () => new Date('2026-05-17T20:00:00.000Z') });
 
@@ -459,5 +442,42 @@ describe('real follow-up agent engine', () => {
 
     expect(state.timeline).toContainEqual(expect.objectContaining({ label: expect.stringMatching(/Email sent.*Autopilot/) }));
     expect(state.timeline).toContainEqual(expect.objectContaining({ label: 'Call task queued' }));
+  });
+
+  it('keeps retention outreach human-approved and records recovery outcomes', async () => {
+    const engine = createAgentEngine({
+      now: () => new Date('2026-08-05T12:00:00.000Z'),
+      initialState: {
+        leads: [{
+          id: 'lead_retention', name: 'Dana Brooks', company: 'Triangle Talent Partners', service: 'automated follow-up',
+          budget: '3000', urgency: 'this month', pain: 'missed follow-ups', channel: 'Email', contact: 'dana@example.com',
+          status: 'contacted', createdAt: '2026-07-01T12:00:00.000Z', updatedAt: '2026-08-01T12:00:00.000Z',
+        }],
+        messages: [{
+          id: 'msg_sent', leadId: 'lead_retention', direction: 'outbound', status: 'sent', body: 'Checking in',
+          createdAt: '2026-08-01T12:00:00.000Z', sentAt: '2026-08-01T12:00:00.000Z',
+        }],
+        tasks: [], timeline: [], decisions: [], inboxes: [], emailMessages: [], retentionOutcomes: [],
+        config: { bookingLink: 'https://calendar.example/book', autopilotEnabled: true },
+      },
+    });
+
+    const draft = await engine.prepareRetentionDraft('lead_retention');
+    let state = engine.getState();
+    expect(draft.status).toBe('draft');
+    expect(state.tasks).toContainEqual(expect.objectContaining({ messageId: draft.id, status: 'waiting_approval' }));
+    expect(state.timeline).toContainEqual(expect.objectContaining({ label: 'Retention follow-up drafted' }));
+    expect(state.decisions).toContainEqual(expect.objectContaining({ type: 'retention' }));
+
+    await engine.recordRetentionOutcome('lead_retention', { outcome: 'recovered', note: 'Client confirmed the next step.' });
+    state = engine.getState();
+    expect(state.retentionOutcomes?.[0]).toMatchObject({ leadId: 'lead_retention', outcome: 'recovered' });
+    expect(state.leads[0].status).toBe('contacted');
+
+    await engine.recordRetentionOutcome('lead_retention', { outcome: 'lost', note: 'Account closed after owner review.' });
+    state = engine.getState();
+    expect(state.leads[0].status).toBe('closed');
+    expect(state.messages.some((message) => message.status === 'draft')).toBe(false);
+    expect(state.tasks.every((task) => task.status === 'done')).toBe(true);
   });
 });

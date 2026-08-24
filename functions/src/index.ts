@@ -61,10 +61,11 @@ async function initializeEngine() {
       }
     }
     eng.reset(state);
+    await eng.flushPersistence();
   }
 
   // Ensure initial state is stored in Firestore if it was empty/new
-  if (!firestoreState) {
+  if (!firestoreState && !isProduction) {
     await saveStateToFirestore(eng.getState());
   }
 
@@ -354,10 +355,16 @@ app.post('/api/webhooks/lead', async (req, res) => {
 
   const run = await getEngine().createLead(leadInput);
 
+  const extractionProvider = process.env.OPENAI_API_KEY
+    ? 'OpenAI GPT-5.6'
+    : apiKey
+      ? 'Gemini GenAI Extraction'
+      : 'CRM Rule Mapper';
+
   await getEngine().addTimelineEvent(
     run.lead.id,
     'CRM Webhook intake',
-    `Lead push ingested. Mapped using ${apiKey ? 'Gemini GenAI Extraction' : 'CRM Rule Mapper'}.`
+    `Lead push ingested. Mapped using ${extractionProvider}.`
   );
 
   res.status(201).json(run);
@@ -423,6 +430,22 @@ app.post('/api/leads/:leadId/replies', async (req, res) => {
   const body = req.body as { body?: string };
   const message = await getEngine().recordReply(req.params.leadId, body.body || '');
   res.status(201).json(message);
+});
+
+// ─── Retention workflow ──────────────────────────────────────
+app.post('/api/retention/:leadId/draft', async (req, res) => {
+  const message = await getEngine().prepareRetentionDraft(req.params.leadId);
+  res.status(201).json(message);
+});
+
+app.post('/api/retention/:leadId/outcomes', async (req, res) => {
+  const body = req.body as { outcome?: 'recovered' | 'monitoring' | 'lost' | 'no_response'; note?: string };
+  if (!body.outcome) {
+    res.status(400).json({ error: 'A retention outcome is required.' });
+    return;
+  }
+  const outcome = await getEngine().recordRetentionOutcome(req.params.leadId, { outcome: body.outcome, note: body.note });
+  res.status(201).json(outcome);
 });
 
 // ─── POST /api/worker/run ────────────────────────────────────

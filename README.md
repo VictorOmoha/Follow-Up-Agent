@@ -1,109 +1,128 @@
 # Omoha Follow-Up Agent
 
-AI follow-up agent MVP for service businesses. It captures inbound leads, scores urgency/value, drafts or sends first responses, schedules follow-ups, imports email leads, accepts CRM/webform webhooks, and surfaces the next owner action.
+An AI-assisted lead operations system for service businesses. It captures inbound inquiries, turns unstructured messages into structured lead records, prioritizes opportunities, prepares follow-up sequences, tracks replies, and keeps the business owner in control of what is sent.
 
-## What is built
+Built by [Omoha Solutions](https://omohasolutions.com/) for OpenAI Build Week 2026.
 
-- Manual lead intake form
-- Rules-based lead scoring with optional Gemini GenAI scoring
-- Universal lead extraction from unstructured emails/webhooks with Gemini and deterministic fallbacks
-- Hot/Warm/Nurture classification
-- Five-step follow-up sequence generator with plan-aligned scheduling (5 min → 2 h → 24 h → 72 h); after the final step the lead moves to nurture instead of looping
-- Draft-only human approval mode for safe demos
-- Autopilot mode for auto-send / dry-run follow-up workflows
-- Twilio SMS send helper with dry-run fallback
-- Twilio inbound SMS webhook (`/api/sms/inbound`) that matches replies to leads by phone (E.164-tolerant) or creates a new lead from the message
-- Reply intelligence: booking intent escalates to the owner, opt-outs close the lead, cancel follow-ups, and remove pending drafts (opt-out always wins over booking words)
-- Lead deduplication by phone/email so repeat inquiries update the existing lead
-- Email and call delivery timeline logging for demo/ops visibility
-- Gmail OAuth readiness flow, mock Gmail connection, and inbox sync
-- CRM/webform webhook ingestion endpoint
-- Editable booking link used inside follow-up plans
-- Money-on-the-table dashboard and owner daily digest
-- Public API state redaction so secrets/tokens do not leak to the browser
-- Test coverage for scoring, planning, extraction, webhook intake, inbound SMS, inbox sync, autopilot, cadence, and UI flow
+## Links
 
-## Run locally
+- Live Build Week demo: [omoha-followup-agent-mvp.web.app](https://omoha-followup-agent-mvp.web.app/)
+- Walkthrough guide: [omoha-followup-agent-mvp.web.app/demo-guide.html](https://omoha-followup-agent-mvp.web.app/demo-guide.html)
+- Build Week branch: [`build-week-gpt56`](https://github.com/VictorOmoha/Follow-Up-Agent/tree/build-week-gpt56)
+- Build Week change evidence: [`main...build-week-gpt56`](https://github.com/VictorOmoha/Follow-Up-Agent/compare/main...build-week-gpt56)
 
-```bash
-npm install
-npm run dev
-```
+> The public demo above is deployed from the Build Week branch. The branch comparison below separates the pre-event product from the GPT-5.6 extension built during the challenge.
 
-Frontend:
+## The problem
 
-```text
-http://127.0.0.1:5173/
-```
+Small service businesses receive leads through forms, email, referrals, ads, SMS, and CRM webhooks. Those inquiries often arrive as inconsistent free text. An owner or small team must manually identify the prospect, understand what they need, judge urgency, decide the next step, and remember every follow-up.
 
-API:
+The Follow-Up Agent creates a consistent operating workflow:
 
-```text
-http://127.0.0.1:8787/api/state
-```
+1. Capture the inbound message.
+2. Extract a structured lead record.
+3. Score and classify the opportunity.
+4. Prepare a follow-up plan.
+5. Keep the owner in approval mode or run an explicitly enabled autopilot workflow.
+6. Detect replies, booking intent, and opt-outs.
+7. Surface the next owner action and the value still in the pipeline.
 
-## Verify
+## Build Week eligibility and scope
 
-```bash
-npm test
-npm run lint
-npm run build
-```
+This project existed before OpenAI Build Week. The submission is based only on the meaningful GPT-5.6 and Codex extension developed after the challenge opened on July 13, 2026.
 
-## Useful demo actions
+### Pre-Build Week baseline
 
-1. Click **Clear backend state** for a fresh demo.
-2. Create a lead manually from **Lead Trigger**.
-3. Use **Approve & Send** in draft-only mode, or enable **Autopilot** to auto-send/dry-run.
-4. Connect a `.demo` inbox like `owner@omohasolutions.demo`, then click **Sync inbox now**.
-5. POST an external lead to:
+The baseline is the `main` branch at commit [`ed5b307`](https://github.com/VictorOmoha/Follow-Up-Agent/commit/ed5b3077027771bf861a13f50cb1dc2388e29f45), dated July 1, 2026. It already included:
 
-```text
-http://127.0.0.1:8787/api/webhooks/lead
-```
+- React dashboard and manual lead intake
+- CRM, webform, inbound-email, Gmail, and Twilio ingestion paths
+- Rules-based scoring with optional Gemini scoring and plan generation
+- Hot, Warm, and Nurture classification
+- Five-step follow-up scheduling
+- Draft-only approval and explicitly enabled autopilot modes
+- Reply handling, booking escalation, and opt-out enforcement
+- Versioned per-entity Firestore persistence, scheduled workers, rate limiting, and API redaction
+- Lead deduplication, activity timelines, owner digest, and pipeline-value dashboard
 
-Example webhook payload:
+### Added during Build Week
+
+The [`build-week-gpt56`](https://github.com/VictorOmoha/Follow-Up-Agent/tree/build-week-gpt56) branch adds:
+
+- GPT-5.6 lead extraction through the OpenAI Responses API
+- Strict JSON Schema output for eight required lead fields
+- Full-message extraction from inbound CRM and webform payloads
+- Explicit prompt-injection boundaries that treat lead content as untrusted data
+- Runtime validation before model output enters the agent workflow
+- A resilient provider chain: GPT-5.6, then the existing Gemini extractor, then deterministic field mapping
+- Server-side `OPENAI_API_KEY` binding through Firebase Secret Manager
+- A configurable `OPENAI_EXTRACTION_MODEL`, defaulting to `gpt-5.6-luna`
+- Webhook timeline annotation identifying OpenAI GPT-5.6 when the OpenAI extraction path is configured
+- Focused Vitest coverage for the OpenAI request, structured output, complete-payload handling, and missing-secret behavior
+
+Only the additions in this section are presented as Build Week work.
+
+## Post-Build Week retention extension
+
+The branch now also includes the first release of a Client Retention and Follow-Up System. This work was added after Build Week and is not presented as challenge-period work.
+
+- Deterministic account-health scoring from overdue follow-ups, unanswered messages, negative sentiment, open issues, renewals, and inactivity
+- A retention priority queue ordered by risk and due date
+- Visible risk reasons and weights instead of a black-box score
+- Account owner, recommended next action, approval state, and due date
+- Recovery drafts that always remain human-approved, even when lead autopilot is enabled
+- Persisted recovered, monitoring, no-response, and lost outcomes
+- Dashboard metrics for accounts at risk, high-risk accounts, overdue work, approvals, and recovery rate
+
+The extension reuses the existing lead, message, task, timeline, decision, and approval flow. It does not replace inbound lead capture or create a second workflow engine. See [`docs/retention-first-release.md`](docs/retention-first-release.md).
+
+## How GPT-5.6 is used
+
+The first high-leverage decision in a follow-up workflow is converting an inconsistent inbound message into reliable structured data. GPT-5.6 receives the message, optional subject, and sender metadata through the Responses API and returns:
 
 ```json
 {
-  "firstName": "Maya",
-  "lastName": "Johnson",
-  "org": "Johnson Roofing",
-  "requestedService": "roof repair estimate",
-  "budgetAmount": 3500,
-  "timeframe": "this week",
-  "message": "web leads are not answered quickly",
-  "preferredChannel": "SMS",
-  "phone": "+155****4567"
+  "name": "Dana Brooks",
+  "company": "Triangle Talent Partners",
+  "service": "Recruiting follow-up automation",
+  "budget": "$3,000",
+  "urgency": "this month",
+  "pain": "Recruiters lose track of screening follow-ups and interview reminders.",
+  "channel": "Email",
+  "contact": "dana@triangletalent.example"
 }
 ```
 
-To simulate an inbound SMS reply from a lead (Twilio webhook format):
+The response must conform to a strict JSON Schema with no additional properties. The application validates the parsed result again at runtime before passing it to the existing agent engine.
 
-```bash
-curl -X POST http://127.0.0.1:8787/api/sms/inbound \
-  -H 'Content-Type: application/x-www-form-urlencoded' \
-  --data-urlencode 'From=+15551234567' \
-  --data-urlencode 'Body=Yes, tomorrow at 10 works for me.'
-```
+The model instructions also establish a trust boundary: inbound content is data, not executable instruction. Missing values use explicit defaults instead of fabricated facts.
 
-In production, point your Twilio phone number's messaging webhook at
-`https://YOUR_DEPLOYED_DOMAIN/api/sms/inbound`.
-
-## Shareable demo guide
-
-The shareable guide is bundled as a static asset at:
-
-- Local dev/build path: `/demo-guide.html`
-- Source file in repo: `public/demo-guide.html`
-
-After deployment, share the production URL as:
+## Architecture
 
 ```text
-https://YOUR_DEPLOYED_DOMAIN/demo-guide.html
+Forms / CRM / Email / SMS
+            |
+            v
+Express API on Firebase Cloud Functions
+            |
+            v
+Lead extraction orchestrator
+  1. OpenAI Responses API with GPT-5.6
+  2. Existing Gemini extractor on OpenAI failure
+  3. Deterministic mapper when no model is available
+            |
+            v
+Agent engine
+  scoring -> classification -> follow-up plan -> approval/autopilot
+            |
+            +----> retention health -> priority queue -> approval-ready recovery draft
+            |
+            +----> Firestore state and activity timeline
+            |
+            +----> React owner dashboard
 ```
 
-The main app also links to it from the header as "Open demo guide".
+The Build Week work deliberately extends the extraction boundary rather than rewriting the complete application. This keeps the existing scheduling, compliance, delivery, and human-approval behavior stable while improving the quality of the data entering those systems.
 
 ## Production safety
 
@@ -112,42 +131,227 @@ The main app also links to it from the header as "Open demo guide".
 - Firebase Hosting should use same-origin `/api` rewrites. Only set `DASHBOARD_ALLOWED_ORIGINS` for an intentional cross-origin dashboard.
 - Enabling Autopilot and clearing all data require explicit confirmation in both the UI and API.
 
-## Optional environment variables
+## Engineering decisions
+
+### 1. Extend the existing product instead of rebuilding it
+
+The goal was a production-oriented extension with a traceable diff. All challenge work lives on a dedicated branch created from the last pre-Build Week `main` commit.
+
+### 2. Send the complete inbound message
+
+The system sends the full inbound lead message to GPT-5.6 because budget, urgency, service need, contact information, and pain often appear in different parts of the same inquiry. The user explicitly controls whether an OpenAI key is configured. Synthetic data is used for demos and evaluation.
+
+### 3. Require structured output
+
+Strict JSON Schema output and runtime validation prevent downstream agent code from depending on loosely formatted model text.
+
+### 4. Preserve graceful degradation
+
+Lead capture must not stop because one model or network request fails. The OpenAI path therefore sits in front of the existing Gemini and deterministic extraction paths. Each fallback preserves the original product behavior.
+
+### 5. Keep secrets server-side
+
+`OPENAI_API_KEY` is a Firebase secret bound only to functions that may process inbound leads. It is not accepted from the browser and is not returned through the public state API.
+
+### 6. Keep high-impact actions under existing controls
+
+The GPT-5.6 extension structures inbound data. Existing draft approval, explicit autopilot settings, opt-out precedence, task cancellation, and owner escalation remain responsible for outbound actions.
+
+## How Codex was used
+
+Codex served as an engineering collaborator throughout the Build Week extension:
+
+- Audited the existing repository and traced the canonical ingestion path before making changes
+- Created the dedicated `build-week-gpt56` branch so the pre-event baseline remained intact
+- Helped select lead extraction as the first bounded GPT-5.6 integration
+- Implemented the Responses API client and strict JSON Schema contract
+- Added prompt-injection boundaries and output validation
+- Wired the OpenAI path into the existing fallback chain without removing previous providers
+- Bound the production secret to Firebase functions
+- Added provider attribution to the activity timeline
+- Wrote focused tests and corrected test and timeline issues found during verification
+- Compared the Build Week branch against `main` so the submission documentation distinguishes old and new work precisely
+
+Victor retained the key product and engineering decisions: use the existing Follow-Up Agent rather than begin a new product, process complete inbound messages when OpenAI is configured, preserve human approval and fallback behavior, use synthetic evaluation data, and focus the demonstration on a measurable service-business workflow.
+
+## Evaluation
+
+### Verified Build Week checks
+
+| Check | Result | Scope |
+|---|---|---|
+| Focused OpenAI unit tests | Passed, 2 of 2 | Structured request and response handling, complete payload, and missing-key behavior |
+| Functions TypeScript build | Passed | The new OpenAI module and Firebase integration compile cleanly |
+| Synthetic Firebase webhook | Re-run before recording | The command and success criteria below provide the reproducible final check |
+
+### Automated tests included
+
+`functions/src/openai.test.ts` verifies that:
+
+- the complete lead message and sender metadata are sent to the Responses API
+- the configured GPT-5.6 model is selected
+- strict JSON Schema output is requested
+- valid structured output is returned to the application
+- a missing `OPENAI_API_KEY` fails before any network request is made
+
+Run the focused function tests:
 
 ```bash
-# App/API
-AGENT_API_PORT=8787
-BOOKING_LINK=https://calendar.google.com/calendar/appointments/schedules/demo
-OWNER_BOOKING_LINK=https://calendar.google.com/calendar/appointments/schedules/demo
-VITE_API_BASE_URL=http://127.0.0.1:8787/api
-
-# Gemini
-GEMINI_API_KEY=...
-
-# Gmail OAuth
-GMAIL_CLIENT_ID=...
-GMAIL_CLIENT_SECRET=...
-
-# Twilio SMS
-TWILIO_ACCOUNT_SID=...
-TWILIO_AUTH_TOKEN=...
-TWILIO_PHONE_NUMBER=...
-
-# Firestore persistence, optional depending on local credentials
-GOOGLE_APPLICATION_CREDENTIALS=...
-FIRESTORE_PROJECT_ID=...
+cd functions
+npm install
+npm test
+npm run build
 ```
 
-If Gemini or Twilio are not configured, the app still runs using rules-based intelligence and dry-run delivery.
+### Manual emulator evaluation
 
-## MVP positioning
+Start the Firebase emulators from the repository root:
 
-Promise: We install an AI follow-up agent that replies to your leads quickly and keeps following up until they book, decline, or need a human.
+```bash
+firebase emulators:start --only functions,firestore,hosting
+```
 
-Best first verticals:
+In another terminal, submit a synthetic unstructured lead:
 
-- roofers and contractors
-- clinics and dental offices
-- law firm intake
-- real estate teams
-- agencies and consultants
+```bash
+curl -i -X POST http://127.0.0.1:5000/api/webhooks/lead \
+  -H "Content-Type: application/json" \
+  --data-binary '{
+    "message": "Hi, my name is Dana Brooks. I run Triangle Talent Partners in Raleigh. We receive about 80 candidates each week through email and job boards. Recruiters lose track of screening follow-ups and interview reminders. We want to test an automated follow-up workflow this month. Our initial budget is around $3,000. Contact me at dana@triangletalent.example."
+  }'
+```
+
+If `WEBHOOK_API_KEY` is configured, include the header required by your local configuration.
+
+Success criteria:
+
+- HTTP `201`
+- a structured lead with the expected name, company, need, budget, urgency, and contact
+- a created lead and follow-up plan in the response
+- an activity-timeline entry identifying `OpenAI GPT-5.6` as the mapper
+- no real customer or production lead data used in the evaluation
+
+## Local setup
+
+### Prerequisites
+
+- Node.js 22
+- npm
+- Firebase CLI for emulator or deployment workflows
+- OpenAI API key for the Build Week extraction path
+
+### Install
+
+```bash
+git clone https://github.com/VictorOmoha/Follow-Up-Agent.git
+cd Follow-Up-Agent
+git switch build-week-gpt56
+npm install
+cd functions
+npm install
+cd ..
+```
+
+### Configure
+
+Create a local `.env` file or export the variables in your shell:
+
+```bash
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_EXTRACTION_MODEL=gpt-5.6-luna
+BOOKING_LINK=https://your-booking-link.example
+```
+
+Optional integrations:
+
+```bash
+GEMINI_API_KEY=your_optional_fallback_key
+GMAIL_CLIENT_ID=your_gmail_client_id
+GMAIL_CLIENT_SECRET=your_gmail_client_secret
+TWILIO_ACCOUNT_SID=your_twilio_account_sid
+TWILIO_AUTH_TOKEN=your_twilio_auth_token
+TWILIO_PHONE_NUMBER=your_twilio_number
+WEBHOOK_API_KEY=your_optional_webhook_key
+```
+
+Never commit `.env` files or secret values.
+
+For Firebase deployment, store the OpenAI key in Secret Manager:
+
+```bash
+firebase functions:secrets:set OPENAI_API_KEY
+```
+
+### Run the local application
+
+```bash
+npm run dev
+```
+
+- Frontend: `http://127.0.0.1:5173/`
+- Local API: `http://127.0.0.1:8787/api/state`
+
+### Run the Firebase stack
+
+```bash
+npm run build
+cd functions
+npm run build
+cd ..
+firebase emulators:start --only functions,firestore,hosting
+```
+
+- Hosting emulator: `http://127.0.0.1:5000/`
+- Functions emulator: `http://127.0.0.1:5001/`
+
+## Existing product capabilities
+
+- Manual, CRM, webform, email, Gmail, and SMS lead intake
+- Lead scoring and Hot, Warm, or Nurture classification
+- Five-step follow-up sequences with plan-aligned timing
+- Draft-only human approval and explicitly enabled autopilot modes
+- Email and SMS delivery helpers with dry-run support
+- Reply intelligence for booking, neutral responses, declines, and opt-outs
+- Lead deduplication and E.164-tolerant phone matching
+- Firestore persistence and scheduled follow-up workers
+- Activity timeline, owner decision log, daily digest, and pipeline-value dashboard
+- Transparent account-health scoring, retention priority queue, and recovery outcome tracking
+- Authentication hooks, webhook authentication, rate limiting, and public-state redaction
+
+## Privacy and safety
+
+- The OpenAI path is enabled only when `OPENAI_API_KEY` is configured.
+- Complete inbound messages may be sent to the OpenAI API when that path is enabled.
+- Demo and evaluation payloads should contain synthetic data only.
+- Inbound text is explicitly treated as untrusted data.
+- Model output is constrained by JSON Schema and validated again at runtime.
+- Secrets remain server-side.
+- Existing human approval and opt-out controls remain in force.
+
+## Repository guide
+
+```text
+functions/src/openai.ts       GPT-5.6 Responses API integration
+functions/src/openai.test.ts  Focused OpenAI integration tests
+functions/src/gemini.ts       Extraction orchestration and fallbacks
+functions/src/index.ts        Webhook routes and provider attribution
+functions/src/firebase.ts     Firebase function and secret bindings
+functions/src/agent-engine.ts Existing workflow and state engine
+functions/src/retention.ts    Deterministic account-health evaluator and retention metrics
+src/                          React owner dashboard
+public/demo-guide.html        Shareable product walkthrough
+```
+
+## Build Week submission notes
+
+The demo video, judge-access checklist, evidence links, and final submission fields are tracked in [`docs/build-week-submission.md`](docs/build-week-submission.md).
+
+## Positioning
+
+**Promise:** Every inbound lead is captured, understood, and moved toward the right next step without forcing a small business owner to hire an SDR or constantly monitor every channel.
+
+Initial target workflows include staffing and recruiting agencies, consultants, marketing agencies, contractors, clinics, law-firm intake, and other service businesses where delayed follow-up means lost revenue.
+
+## License
+
+Copyright (c) 2026 Victor Omoha. Released under the [MIT License](LICENSE).

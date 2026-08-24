@@ -1,4 +1,5 @@
 import { scoreLead, buildFollowUpPlan, type LeadInput, type LeadScore } from './shared/agent.js';
+import { extractLeadWithOpenAI } from './openai.js';
 
 export type LLMScoreResult = LeadScore;
 
@@ -463,9 +464,29 @@ export async function extractLeadFromText(
   fromEmail?: string,
   configKey?: string
 ): Promise<LLMExtractedLead> {
+  const openAIKey = process.env.OPENAI_API_KEY?.trim();
+  if (openAIKey) {
+    try {
+      const result = await extractLeadWithOpenAI(text, subject, fromEmail);
+      console.log('[OPENAI SERVICE] Lead extracted with GPT-5.6.');
+      return {
+        name: result.name || 'Unknown Lead',
+        company: result.company || 'Self-Employed',
+        service: result.service || subject || 'General Inquiry',
+        budget: String(result.budget || 'unknown'),
+        urgency: result.urgency || 'unknown',
+        pain: result.pain || 'No pain described',
+        channel: result.channel || 'Email',
+        contact: result.contact || fromEmail || 'none',
+      };
+    } catch (error) {
+      console.error('[OPENAI SERVICE] Lead extraction failed. Trying the existing provider:', error);
+    }
+  }
+
   const apiKey = getApiKey(configKey);
   if (!apiKey) {
-    console.log('[GEMINI SERVICE] No API key. Falling back to rules-based lead extraction.');
+    console.log('[LLM SERVICE] No API key. Falling back to rules-based lead extraction.');
     return fallbackExtractLead(text, subject, fromEmail);
   }
 
@@ -484,9 +505,9 @@ ${text}
 Analyze the text carefully. Map the fields as follows:
 1. name: Extract the lead's full name. If not found, try to infer from the email/text or use 'Unknown Lead'.
 2. company: Extract the lead's company or organization. If not found, use 'Self-Employed' or 'Unknown'.
-3. service: Identify the service requested (e.g. Legal, web development, immigration).
+3. service: Identify the service requested.
 4. budget: Extract any budget numbers or estimates. If not found, use 'unknown'.
-5. urgency: Extract the timeline or urgency mentioned (e.g., ASAP, next month, next week). If not found, use 'unknown'.
+5. urgency: Extract the timeline or urgency mentioned. If not found, use 'unknown'.
 6. pain: Extract the main pain point, problem, or description of what they need help with.
 7. channel: "Email" or "SMS" or "Call". Default to "Email" if not specified.
 8. contact: Extract the email address or phone number. Default to the provided contact/sender info if not explicitly overridden.
@@ -522,4 +543,3 @@ Return a JSON object matching this schema:
     return fallbackExtractLead(text, subject, fromEmail);
   }
 }
-
