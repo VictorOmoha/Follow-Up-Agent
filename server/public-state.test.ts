@@ -34,7 +34,7 @@ describe('public agent state', () => {
       },
     };
 
-    const publicState = toPublicAgentState(privateState);
+    const publicState = toPublicAgentState(privateState, new Date('2026-08-05T12:00:00.000Z'));
     const serialized = JSON.stringify(publicState);
 
     expect(serialized).not.toContain('secret_access_token');
@@ -46,6 +46,10 @@ describe('public agent state', () => {
       autopilotEnabled: true,
       geminiApiKeyConfigured: true,
       features: { retentionPhase1: false },
+    });
+    expect(publicState.retention).toMatchObject({
+      generatedAt: '2026-08-05T12:00:00.000Z',
+      queue: [],
     });
   });
 });

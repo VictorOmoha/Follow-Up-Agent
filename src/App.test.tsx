@@ -12,6 +12,20 @@ type TestState = {
   decisions: Array<Record<string, string | number>>;
   inboxes: Array<Record<string, string | string[]>>;
   emailMessages: Array<Record<string, string>>;
+  retention: {
+    generatedAt: string;
+    queue: Array<Record<string, unknown>>;
+    metrics: {
+      totalAccounts: number;
+      atRiskAccounts: number;
+      highRiskAccounts: number;
+      overdueFollowUps: number;
+      waitingApproval: number;
+      recoveredAccounts: number;
+      recoveryRate: number;
+    };
+    outcomes: Array<Record<string, string>>;
+  };
   config?: {
     bookingLink: string;
     autopilotEnabled?: boolean;
@@ -32,6 +46,12 @@ function makeState(): TestState {
     decisions: [],
     inboxes: [],
     emailMessages: [],
+    retention: {
+      generatedAt: '2026-08-05T12:00:00Z',
+      queue: [],
+      metrics: { totalAccounts: 0, atRiskAccounts: 0, highRiskAccounts: 0, overdueFollowUps: 0, waitingApproval: 0, recoveredAccounts: 0, recoveryRate: 0 },
+      outcomes: [],
+    },
     config: {
       bookingLink: 'https://calendar.google.com/calendar/appointments/schedules/demo',
       features: { retentionPhase1: false },
@@ -86,6 +106,20 @@ function installApiMock() {
       const event = { id: 'event_1', leadId: 'lead_1', label: 'Agent drafted first response', detail: message.body, createdAt: '2026-05-17T20:00:00Z' };
       const decision = { id: 'decision_1', leadId: 'lead_1', type: 'triage', observation: 'Ada Okafor needs immigration consultation; budget 2500; urgency ASAP.', reasoning: 'Hot score from urgent timeline and revenue leakage pain.', action: 'Created an approval-gated first response instead of silently sending.', confidence: 92, createdAt: '2026-05-17T20:00:00Z' };
       state = { ...state, leads: [lead], messages: [message], tasks: [task], timeline: [event], decisions: [decision] };
+      state.retention = {
+        generatedAt: '2026-08-05T12:00:00Z',
+        queue: [{
+          leadId: 'lead_1', name: body.name, company: body.company, owner: 'Victor Omoha', score: 65, level: 'high',
+          reasons: [
+            { code: 'overdue_follow_up', label: 'Overdue follow-up', detail: 'One follow-up is overdue.', weight: 35 },
+            { code: 'unanswered_message', label: 'Unanswered message', detail: 'No reply for three days.', weight: 30 },
+          ],
+          recommendedAction: 'Review and approve the overdue follow-up now.', approvalState: 'waiting_approval',
+          dueAt: '2026-08-02T12:00:00Z', draftMessageId: 'msg_1', lastActivityAt: '2026-08-01T12:00:00Z',
+        }],
+        metrics: { totalAccounts: 1, atRiskAccounts: 1, highRiskAccounts: 1, overdueFollowUps: 1, waitingApproval: 1, recoveredAccounts: 0, recoveryRate: 0 },
+        outcomes: [],
+      };
       return Response.json({ lead, message, task }, { status: 201 });
     }
     if (path === '/messages/msg_1/approve') {
@@ -130,6 +164,18 @@ function installApiMock() {
       state.messages.unshift({ id: 'msg_2', leadId: 'lead_1', direction: 'inbound', status: 'received', body: body.body, createdAt: '2026-05-17T20:01:00Z' });
       state.tasks.unshift({ id: 'task_3', leadId: 'lead_1', type: 'owner_review', status: 'waiting_approval', dueAt: '2026-05-17T20:01:00Z', note: 'Lead replied with booking intent.', createdAt: '2026-05-17T20:01:00Z' });
       return Response.json(state.messages[0], { status: 201 });
+    }
+    if (path === '/retention/lead_1/draft') {
+      const existing = state.messages.find((message) => message.status === 'draft');
+      return Response.json(existing, { status: 201 });
+    }
+    if (path === '/retention/lead_1/outcomes') {
+      state.retention.outcomes.unshift({ id: 'outcome_1', leadId: 'lead_1', outcome: body.outcome, recordedAt: '2026-08-05T12:00:00Z' });
+      if (body.outcome === 'recovered') {
+        state.retention.metrics.recoveredAccounts = 1;
+        state.retention.metrics.recoveryRate = 100;
+      }
+      return Response.json(state.retention.outcomes[0], { status: 201 });
     }
     return Response.json({ error: 'not found' }, { status: 404 });
   });
@@ -297,5 +343,26 @@ describe('Omoha Follow-Up Agent', () => {
     await userEvent.click(screen.getAllByRole('button', { name: /^Save$/i })[0]);
 
     await waitFor(() => expect(screen.getByText('https://cal.com/omoha/demo')).toBeInTheDocument());
+  });
+
+  it('shows the retention queue, transparent risk reasons, and owner controls', async () => {
+    render(<App />);
+    await userEvent.click(screen.getByRole('button', { name: /Create Your First Lead/i }));
+    await userEvent.type(screen.getByLabelText(/Lead name/i), 'Dana Brooks');
+    await userEvent.type(screen.getByLabelText(/Company/i), 'Triangle Talent Partners');
+    await userEvent.type(screen.getByLabelText(/Service requested/i), 'automated follow-up');
+    await userEvent.type(screen.getByLabelText(/Budget/i), '3000');
+    await userEvent.type(screen.getByLabelText(/Urgency/i), 'this month');
+    await userEvent.type(screen.getByLabelText(/Pain point/i), 'missed follow-ups');
+    await userEvent.click(screen.getByRole('button', { name: /Create lead/i }));
+    await waitFor(() => expect(screen.getAllByText(/Triangle Talent Partners/i).length).toBeGreaterThan(0));
+
+    await userEvent.click(screen.getByRole('button', { name: /^Retention$/i }));
+
+    expect(screen.getByRole('heading', { name: /Retention Queue/i })).toBeInTheDocument();
+    expect(screen.getByText(/high risk · 65\/100/i)).toBeInTheDocument();
+    expect(screen.getByText(/Overdue follow-up \+35/i)).toBeInTheDocument();
+    expect(screen.getByText(/Review and approve the overdue follow-up now/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Recovered/i })).toBeInTheDocument();
   });
 });

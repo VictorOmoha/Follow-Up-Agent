@@ -1,14 +1,14 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
-import { defineString } from 'firebase-functions/params';
+import { defineSecret, defineString } from 'firebase-functions/params';
 import { app, enginePromise, getEngineForScheduler } from './index.js';
 
-// Configurable environment parameters. Values come from
-// functions/.env.<project> at deploy time and are written to the function's
-// runtime environment by the Firebase CLI. These are string params, NOT
-// Secret Manager secrets — do not pass them via the `secrets:` option, which
-// would force the Secret Manager API onto the project.
+// Configurable runtime parameters. OPENAI_API_KEY is stored in Secret Manager
+// and explicitly bound to every function that can process inbound leads.
+// The remaining values use the existing Firebase string-parameter setup.
 defineString('GEMINI_API_KEY', { default: '' });
+const openaiApiKey = defineSecret('OPENAI_API_KEY');
+defineString('OPENAI_EXTRACTION_MODEL', { default: 'gpt-5.6-luna' });
 defineString('TWILIO_ACCOUNT_SID', { default: '' });
 defineString('TWILIO_AUTH_TOKEN', { default: '' });
 defineString('TWILIO_PHONE_NUMBER', { default: '' });
@@ -31,6 +31,7 @@ export const api = onRequest(
     timeoutSeconds: 60,
     minInstances: 0,
     maxInstances: 10,
+    secrets: [openaiApiKey],
   },
   async (req, res) => {
     await enginePromise;
@@ -52,6 +53,7 @@ export const runDueTasks = onSchedule(
     region: 'us-central1',
     memory: '512MiB',
     timeoutSeconds: 120,
+    secrets: [openaiApiKey],
   },
   async () => {
     await enginePromise;
@@ -75,6 +77,7 @@ export const syncInboxes = onSchedule(
     region: 'us-central1',
     memory: '512MiB',
     timeoutSeconds: 120,
+    secrets: [openaiApiKey],
   },
   async () => {
     await enginePromise;
