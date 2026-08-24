@@ -30,7 +30,6 @@ describe('public agent state', () => {
         bookingLink: 'https://calendar.example/book',
         autopilotEnabled: true,
         geminiApiKey: 'secret_gemini_key',
-        features: { retentionPhase1: false },
       },
     };
 
@@ -45,7 +44,6 @@ describe('public agent state', () => {
       bookingLink: 'https://calendar.example/book',
       autopilotEnabled: true,
       geminiApiKeyConfigured: true,
-      features: { retentionPhase1: false },
     });
     expect(publicState.retention).toMatchObject({
       generatedAt: '2026-08-05T12:00:00.000Z',

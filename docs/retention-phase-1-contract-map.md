@@ -4,6 +4,8 @@ Status: FU-RET-01 foundation
 
 Date: 2026-08-06
 
+> Historical contract: this document records the disabled, read-only foundation. It was superseded by the owner-approved first release in `retention-first-release.md`. The temporary `retentionPhase1` isolation flag was removed when the retention workspace and approval-gated mutations shipped together.
+
 ## Safety contract
 
 The retention upgrade is additive and disabled by default through `config.features.retentionPhase1`.

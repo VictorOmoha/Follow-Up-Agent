@@ -1,16 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { createAgentEngine, type AgentState } from '../agent-engine.js';
 import { createRetentionReadAdapter } from './contracts.js';
-import { isRetentionPhase1Enabled } from './feature.js';
 
 const fixedNow = new Date('2026-08-06T17:00:00.000Z');
 
 describe('retention read adapter', () => {
-  it('keeps the Phase 1 retention gate disabled by default', () => {
-    const engine = createAgentEngine({ now: () => fixedNow });
-    expect(isRetentionPhase1Enabled(engine.getState())).toBe(false);
-  });
-
   it('is additive and does not mutate the lead workflow state', async () => {
     const engine = createAgentEngine({ now: () => fixedNow });
     const run = await engine.createLead({

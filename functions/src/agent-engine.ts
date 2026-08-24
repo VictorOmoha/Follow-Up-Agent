@@ -90,13 +90,6 @@ export type AgentDecisionRecord = {
   createdAt: string;
 };
 
-export type AgentFeatureFlags = {
-  /**
-   * Controls whether the client-retention workspace and mutations are enabled.
-   */
-  retentionPhase1: boolean;
-};
-
 export type RetentionOutcome = 'recovered' | 'monitoring' | 'lost' | 'no_response';
 
 export type RetentionOutcomeRecord = {
@@ -123,7 +116,6 @@ export type AgentState = {
     // Gmail search query used by inbox sync. Defaults to 'is:unread'; set to
     // e.g. 'is:unread label:leads' to only import labeled intake mail.
     gmailSyncQuery?: string;
-    features?: AgentFeatureFlags;
   };
 };
 
@@ -145,9 +137,6 @@ type EngineOptions = {
 const defaultConfig = () => ({
   bookingLink: process.env.OWNER_BOOKING_LINK || process.env.BOOKING_LINK || 'https://calendar.google.com/calendar/appointments/schedules/demo',
   autopilotEnabled: false,
-  features: {
-    retentionPhase1: false,
-  },
 });
 
 const emptyState = (): AgentState => ({ leads: [], messages: [], tasks: [], timeline: [], decisions: [], inboxes: [], emailMessages: [], retentionOutcomes: [], config: defaultConfig() });
@@ -157,10 +146,6 @@ function normalizeState(state: Partial<AgentState>): AgentState {
   const config = {
     ...defaults,
     ...(state.config ?? {}),
-    features: {
-      ...defaults.features,
-      ...(state.config?.features ?? {}),
-    },
   };
 
   return {

@@ -13,7 +13,7 @@ describe('entity persistence mapping', () => {
       inboxes: [],
       emailMessages: [],
       retentionOutcomes: [{ id: 'outcome-1', leadId: 'lead-1', outcome: 'monitoring', recordedAt: '2026-08-24T12:00:00.000Z' }],
-      config: { bookingLink: 'https://example.test/book', autopilotEnabled: false, features: { retentionPhase1: true } },
+      config: { bookingLink: 'https://example.test/book', autopilotEnabled: false },
     };
 
     const snapshot = stateToEntitySnapshot(state);

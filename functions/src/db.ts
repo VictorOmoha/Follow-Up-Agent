@@ -114,16 +114,33 @@ function collectionCounts(snapshot: EntityStateSnapshot): Record<EntityCollectio
   ) as Record<EntityCollectionName, number>;
 }
 
-async function loadGeneration(db: Firestore, generation: string): Promise<AgentState> {
+async function loadGeneration(
+  db: Firestore,
+  generation: string,
+  expectedCounts: Record<EntityCollectionName, number>,
+): Promise<AgentState> {
   const root = db.collection(SNAPSHOT_COLLECTION).doc(generation);
-  const [configDoc, ...collectionSnapshots] = await Promise.all([
+  const [manifestDoc, configDoc, ...collectionSnapshots] = await Promise.all([
+    root.collection('manifest').doc('current').get(),
     root.collection('config').doc('global').get(),
     ...ENTITY_COLLECTIONS.map((name) => root.collection(name).get()),
   ]);
 
+  if (!manifestDoc.exists || manifestDoc.data()?.schemaVersion !== SCHEMA_VERSION) {
+    throw new Error(`State generation ${generation} has a missing or unsupported manifest.`);
+  }
+
   const snapshot = { config: configDoc.exists ? configDoc.data() as AgentState['config'] : undefined } as EntityStateSnapshot;
   ENTITY_COLLECTIONS.forEach((name, index) => {
-    snapshot[name] = collectionSnapshots[index].docs.map((doc) => doc.data() as EntityRecord);
+    const documents = collectionSnapshots[index].docs;
+    if (documents.length !== expectedCounts[name]) {
+      throw new Error(`State generation ${generation} has ${documents.length} ${name} records; expected ${expectedCounts[name]}.`);
+    }
+    snapshot[name] = documents.map((doc) => {
+      const record = doc.data() as EntityRecord;
+      if (record.id !== doc.id) throw new Error(`State generation ${generation} has an invalid ${name}/${doc.id} record ID.`);
+      return record;
+    });
   });
   return entitySnapshotToState(snapshot);
 }
@@ -140,16 +157,19 @@ export async function loadStateFromFirestore(): Promise<AgentState | undefined> 
   try {
     const metadataDoc = await db.collection(METADATA_COLLECTION).doc('default').get();
     const metadata = metadataDoc.exists ? metadataDoc.data() as StateMetadata : undefined;
-    if (metadata?.schemaVersion === SCHEMA_VERSION && metadata.activeGeneration) {
+    if (metadata) {
+      if (metadata.schemaVersion !== SCHEMA_VERSION || !metadata.activeGeneration || !metadata.counts) {
+        throw new Error(`Unsupported or invalid Firestore state metadata (schema ${String(metadata.schemaVersion)}).`);
+      }
       loadedRevision = metadata.revision;
-      return await loadGeneration(db, metadata.activeGeneration);
+      return await loadGeneration(db, metadata.activeGeneration, metadata.counts);
     }
 
     loadedRevision = 0;
     return await loadLegacyState(db);
   } catch (error) {
     console.error('Failed to load state from Firestore:', error);
-    return undefined;
+    throw error;
   }
 }
 
